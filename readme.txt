@@ -1,0 +1,12 @@
+The users shall run the following file in sequence to get the final point estimate:
+retrieve_baidu_index.ipynb
+generate_composite_search_index.ipynb
+estimate_reference_series_via_search_data.r
+estimate_reference_series_via_flight_data.ipynb
+baseline_forecast_method_2018_1.r
+baseline_forecast_method_2018_2.r
+baseline_forecast_method_2020_1.r
+baseline_forecast_method_2020_2.r
+baseline_forecast_hierarchical.r
+baseline_forecast_ensemble.ipynb
+make_adjustment_forecasts.ipynb

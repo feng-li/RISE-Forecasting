@@ -38,9 +38,6 @@ The RISE framework proceeds in **three stages**:
 
 ---
 
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -59,6 +56,6 @@ source("main.R")
 ## Citation
 
 If you use this code or build upon it, please cite:
-
-Feng Li & Taozhu Ruan (2025). RISE: Recovery-Informed Strategy Enhancement in Post-COVID-19 Chinese Outbound Tourism Forecasting. *Manuscript*. [DOI]
+pr
+Feng Li & Taozhu Ruan (2026). RISE: Recovery-Informed Forecasting Strategy Enhancement. *Annals of Tourism Research*. [Preprint](https://arxiv.org/abs/2603.01085)
 

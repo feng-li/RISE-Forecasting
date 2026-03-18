@@ -1,4 +1,4 @@
-# RISE: Recovery-Informed Strategy Enhancement in Post-COVID-19 Chinese Outbound Tourism Forecasting
+# RISE: Recovery-Informed Forecasting Strategy Enhancement
 
 This repository contains the implementation of **RISE** (Recovery-Informed Strategy Enhancement), a three-stage forecasting framework developed for predicting the recovery of **Chinese outbound tourism** in the post-COVID-19 era. The framework was awarded **1st place in point forecasting** and **3rd place in interval forecasting** in the **Tourism Forecasting Competition II (2023)**.
 
@@ -56,6 +56,6 @@ source("main.R")
 ## Citation
 
 If you use this code or build upon it, please cite:
-pr
-Feng Li & Taozhu Ruan (2026). RISE: Recovery-Informed Forecasting Strategy Enhancement. *Annals of Tourism Research*. [Preprint](https://arxiv.org/abs/2603.01085)
+
+> Feng Li & Taozhu Ruan (2026). RISE: Recovery-Informed Forecasting Strategy Enhancement. *Annals of Tourism Research*. [DOI](https://doi.org/10.1016/j.annals.2026.104164) [Preprint](https://arxiv.org/abs/2603.01085)
 

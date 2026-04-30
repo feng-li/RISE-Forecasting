@@ -296,7 +296,7 @@ def main() -> None:
     parser.add_argument(
         "--legacy-dir",
         type=Path,
-        default=Path("code and supplementary materials"),
+        default=Path("legacypapercode"),
     )
     parser.add_argument(
         "--output-dir",

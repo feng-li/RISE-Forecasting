@@ -14,7 +14,7 @@ This repository is currently in a **migration process**.
 The original paper implementation is preserved in:
 
 ```text
-code and supplementary materials/
+legacypapercode/
 ```
 
 The new Python package is being developed in:
@@ -245,14 +245,14 @@ For reproducing or checking the paper's original implementation, use the legacy
 workflow under:
 
 ```text
-code and supplementary materials/
+legacypapercode/
 ```
 
 The legacy workflow is a mixture of R scripts, Python notebooks, Excel files, and
 generated artifacts. The original run order is documented in:
 
 ```text
-code and supplementary materials/readme.txt
+legacypapercode/readme.txt
 ```
 
 In short, the legacy implementation runs:

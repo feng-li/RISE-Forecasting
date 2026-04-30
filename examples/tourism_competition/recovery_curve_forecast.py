@@ -1,52 +1,50 @@
-"""Compute recovery curve forecasts from legacy baseline/reference artifacts."""
+"""Compute recovery curve forecasts from the converted tourism dataset."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-import pandas as pd
-from terminal_forecast import LEGACY_RECOVERY_COEFFICIENTS, read_baseline
-
-from riseforecast import RecoveryCurveForecaster, intervention_terminal_forecast
-
-
-def read_reference(path: Path, start: str = "2023-01") -> pd.DataFrame:
-    frame = pd.read_excel(path)
-    frame = frame.iloc[:, 1:]
-    frame.index = pd.date_range(start=start, periods=len(frame), freq="MS")
-    return frame
+from riseforecast import (
+    RecoveryCurveForecaster,
+    RecoveryDataset,
+    intervention_terminal_forecast,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--baseline",
+        "--data-dir",
         type=Path,
-        default=Path("code and supplementary materials/baseline.xlsx"),
+        default=Path("examples/tourism_competition/data"),
     )
-    parser.add_argument(
-        "--reference",
-        type=Path,
-        default=Path("code and supplementary materials/reference.xlsx"),
-    )
-    parser.add_argument("--initial-date", default="2023-06")
-    parser.add_argument("--forecast-start", default="2023-08")
-    parser.add_argument("--terminal-date", default="2024-07")
+    parser.add_argument("--initial-date")
+    parser.add_argument("--forecast-start")
+    parser.add_argument("--forecast-end")
+    parser.add_argument("--terminal-date")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
-    baseline = read_baseline(args.baseline)
-    reference = read_reference(args.reference)
-    coefficients = pd.Series(LEGACY_RECOVERY_COEFFICIENTS)
+    dataset = RecoveryDataset.from_directory(args.data_dir)
+    dates = dataset.config.get("dates", {})
+    initial_date = args.initial_date or dates["initial_date"]
+    forecast_start = args.forecast_start or dates["forecast_start"]
+    forecast_end = args.forecast_end or dates["forecast_end"]
+    terminal_date = args.terminal_date or dates["terminal_date"]
+
+    baseline = dataset.base_forecast()
+    reference = dataset.reference_forecast()
+    coefficients = dataset.coefficients()
     terminal = intervention_terminal_forecast(
         baseline,
         coefficients,
-        terminal_date=args.terminal_date,
+        terminal_date=terminal_date,
     )
     recovery_curve = RecoveryCurveForecaster(
-        initial_date=args.initial_date,
-        forecast_start=args.forecast_start,
+        initial_date=initial_date,
+        forecast_start=forecast_start,
+        forecast_end=forecast_end,
     ).forecast(
         initial_forecast=reference,
         terminal_forecast=terminal,

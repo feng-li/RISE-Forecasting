@@ -87,6 +87,19 @@ forecast = RecoveryCurveForecaster(
 )
 ```
 
+The same workflow can start from the compact data format:
+
+```python
+from riseforecast import RecoveryDataset
+
+dataset = RecoveryDataset.from_directory("examples/tourism_competition/data")
+
+observed = dataset.observed_target()
+baseline = dataset.base_forecast()
+reference = dataset.reference_forecast()
+coefficients = dataset.coefficients()
+```
+
 This applies:
 
 ```text
@@ -113,6 +126,13 @@ Regenerate them with:
 
 ```bash
 python examples/tourism_competition/convert_legacy_data.py
+```
+
+Run migrated examples against the converted data:
+
+```bash
+python examples/tourism_competition/terminal_forecast.py
+python examples/tourism_competition/recovery_curve_forecast.py
 ```
 
 ## Data Format
@@ -208,6 +228,15 @@ flight.xlsx        -> signal / flight_capacity
 baseline.xlsx      -> base_forecast / legacy_ensemble
 reference.xlsx     -> reference_forecast / legacy_average
 point_forecast.xlsx -> recovery_forecast / legacy_final
+```
+
+In Python, load this format with:
+
+```python
+from riseforecast import RecoveryDataset
+
+dataset = RecoveryDataset.from_directory("examples/tourism_competition/data")
+baseline = dataset.matrix(kind="base_forecast", name="legacy_ensemble")
 ```
 
 ## Legacy Paper Implementation

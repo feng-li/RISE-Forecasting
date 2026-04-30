@@ -3,6 +3,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from riseforecast import RecoveryDataset
+
 DATA_DIR = Path("examples/tourism_competition/data")
 
 
@@ -32,3 +34,30 @@ def test_converted_tourism_data_uses_compact_schema() -> None:
     assert set(series["series_id"]) == set(panel["series_id"])
     assert set(config["kinds"]) <= set(panel["kind"])
     assert len(panel) == 10188
+
+
+def test_recovery_dataset_loads_converted_tourism_data() -> None:
+    dataset = RecoveryDataset.from_directory(DATA_DIR)
+
+    observed = dataset.observed_target()
+    baseline = dataset.base_forecast()
+    reference = dataset.reference_forecast()
+    coefficients = dataset.coefficients()
+
+    assert observed.shape[1] == 20
+    assert baseline.shape == (24, 20)
+    assert reference.shape == (6, 20)
+    assert coefficients.index.tolist() == baseline.columns.tolist()
+    assert coefficients.loc["canada"] == 0.7
+
+
+def test_recovery_dataset_filters_and_forecast_frame() -> None:
+    dataset = RecoveryDataset.from_directory(DATA_DIR)
+
+    search = dataset.filter_panel(kind="signal", name="search_index")
+    frame = dataset.forecast_frame(kind="base_forecast", name="legacy_ensemble")
+
+    assert not search.empty
+    assert frame.values.shape == (24, 20)
+    assert frame.lower is None
+    assert frame.upper is None

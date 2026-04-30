@@ -14,6 +14,7 @@ from riseforecast.curves import (
     RecoveryCurveForecaster,
     recovery_curve_forecast,
 )
+from riseforecast.data import RecoveryDataset
 from riseforecast.intervention import (
     InterventionTerminalForecast,
     InterventionTerminalForecaster,
@@ -32,6 +33,7 @@ __all__ = [
     "PipelineConfig",
     "RecoveryCurveForecast",
     "RecoveryCurveForecaster",
+    "RecoveryDataset",
     "RecoveryForecastingPipeline",
     "__version__",
     "intervention_terminal_forecast",

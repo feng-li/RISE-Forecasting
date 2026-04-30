@@ -13,7 +13,7 @@ The migration should keep tourism-specific files here:
 - reproduction checks against legacy Excel outputs
 
 The terminal forecast stage can already be run against the legacy baseline
-artifact:
+artifact converted to the compact dataset:
 
 ```bash
 python examples/tourism_competition/terminal_forecast.py

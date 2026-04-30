@@ -2,6 +2,9 @@ from riseforecast import (
     PipelineConfig,
     RecoveryCurveForecaster,
     RecoveryForecastingPipeline,
+    ReferenceForecaster,
+    ReferenceSignalSpec,
+    ReferenceXSpec,
     default_model_registry,
 )
 
@@ -21,4 +24,7 @@ def test_package_imports() -> None:
     )
     assert pipeline.config.initial_date == "2023-06"
     assert forecaster.forecast_start == "2023-08"
+    assert ReferenceForecaster is not None
+    assert ReferenceSignalSpec("signal", method="ratio").signal_name == "signal"
+    assert ReferenceXSpec("signal", method="ratio").variables == ("signal",)
     assert "arima" in default_model_registry().names()

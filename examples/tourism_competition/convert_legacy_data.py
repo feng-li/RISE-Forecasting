@@ -521,6 +521,31 @@ def build_config() -> dict:
             "terminal_date": "2024-07",
             "forecast_end": "2024-07",
         },
+        "reference": {
+            "start": "2023-01",
+            "end": "2023-06",
+            "train_end": "2023-01",
+            "x": [
+                {
+                    "name": "search_arimax",
+                    "variables": ["search_index"],
+                    "method": "arimax",
+                    "lag": 1,
+                },
+                {
+                    "name": "search_ratio",
+                    "variables": ["search_index"],
+                    "method": "ratio",
+                    "lag": 1,
+                    "ratio_window": 36,
+                },
+                {
+                    "name": "flight_growth",
+                    "variables": ["flight_capacity"],
+                    "method": "growth_rate",
+                },
+            ],
+        },
         "columns": {
             "date": "date",
             "series_id": "series_id",

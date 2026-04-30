@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import yaml
+
+if TYPE_CHECKING:
+    from riseforecast.config import PipelineConfig
 
 
 @dataclass(frozen=True)
@@ -200,10 +203,48 @@ class RecoveryDataset:
 
         return self.series.copy()
 
+    def pipeline_config(self) -> PipelineConfig:
+        """Return this dataset's config as a `PipelineConfig`."""
+
+        from riseforecast.config import PipelineConfig
+
+        return PipelineConfig.from_dict(self.config)
+
     def observed_target(self) -> pd.DataFrame:
         """Return observed target values."""
 
         return self.matrix(kind="observed", name="target")
+
+    def signal(self, name: str) -> pd.DataFrame:
+        """Return one external signal matrix."""
+
+        return self.matrix(kind="signal", name=name)
+
+    def exogenous(self, name: str) -> pd.DataFrame:
+        """Return one exogenous variable matrix."""
+
+        try:
+            return self.matrix(kind="exogenous", name=name)
+        except ValueError:
+            return self.matrix(kind="signal", name=name)
+
+    def signals(self) -> dict[str, pd.DataFrame]:
+        """Return all external signal matrices keyed by signal name."""
+
+        signal_rows = self.filter_panel(kind="signal")
+        return {
+            str(name): self.matrix(kind="signal", name=str(name))
+            for name in sorted(signal_rows[self.schema.name].dropna().unique())
+        }
+
+    def exogenous_variables(self) -> dict[str, pd.DataFrame]:
+        """Return all exogenous variable matrices keyed by variable name."""
+
+        rows = self.panel.loc[
+            self.panel[self.schema.kind].isin(["signal", "exogenous"])
+        ]
+        variables = sorted(rows[self.schema.name].dropna().unique())
+        return {str(name): self.exogenous(str(name)) for name in variables}
 
     def base_forecast(self, name: str = "legacy_ensemble") -> pd.DataFrame:
         """Return baseline/counterfactual forecast values."""

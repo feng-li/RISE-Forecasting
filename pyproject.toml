@@ -37,6 +37,7 @@ dependencies = [
   "scipy>=1.10",
   "statsforecast>=2.0",
   "statsmodels>=0.14",
+  "utilsforecast>=0.2",
   "openpyxl>=3.1",
   "PyYAML>=6.0",
 ]

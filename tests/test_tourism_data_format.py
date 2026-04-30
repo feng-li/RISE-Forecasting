@@ -56,8 +56,12 @@ def test_recovery_dataset_filters_and_forecast_frame() -> None:
 
     search = dataset.filter_panel(kind="signal", name="search_index")
     frame = dataset.forecast_frame(kind="base_forecast", name="legacy_ensemble")
+    signals = dataset.signals()
+    exogenous = dataset.exogenous_variables()
 
     assert not search.empty
+    assert set(signals) == {"flight_capacity", "search_index"}
+    assert set(exogenous) == {"flight_capacity", "search_index"}
     assert frame.values.shape == (24, 20)
     assert frame.lower is None
     assert frame.upper is None

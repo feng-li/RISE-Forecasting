@@ -15,13 +15,14 @@ from riseforecast.base_models import (
     forecast_panel,
     forecast_series,
 )
-from riseforecast.config import PipelineConfig
+from riseforecast.config import PipelineConfig, ReferenceXConfig
 from riseforecast.curves import (
     RecoveryCurveForecast,
     RecoveryCurveForecaster,
     recovery_curve_forecast,
 )
 from riseforecast.data import RecoveryDataset
+from riseforecast.evaluation import evaluate_forecast_matrix
 from riseforecast.initial import (
     InitialForecast,
     InitialForecaster,
@@ -33,6 +34,14 @@ from riseforecast.intervention import (
     intervention_terminal_forecast,
 )
 from riseforecast.pipeline import RecoveryForecastingPipeline
+from riseforecast.reference import (
+    ReferenceForecast,
+    ReferenceForecaster,
+    ReferenceSignalSpec,
+    ReferenceXSpec,
+    reference_forecast,
+    reference_specs_from_config,
+)
 
 try:
     __version__ = version("riseforecast")
@@ -47,15 +56,23 @@ __all__ = [
     "InterventionTerminalForecast",
     "InterventionTerminalForecaster",
     "PipelineConfig",
+    "ReferenceForecast",
+    "ReferenceForecaster",
+    "ReferenceSignalSpec",
+    "ReferenceXConfig",
+    "ReferenceXSpec",
     "RecoveryCurveForecast",
     "RecoveryCurveForecaster",
     "RecoveryDataset",
     "RecoveryForecastingPipeline",
     "__version__",
     "default_model_registry",
+    "evaluate_forecast_matrix",
     "forecast_panel",
     "forecast_series",
     "initial_forecast",
     "intervention_terminal_forecast",
+    "reference_forecast",
+    "reference_specs_from_config",
     "recovery_curve_forecast",
 ]

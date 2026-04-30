@@ -19,10 +19,26 @@ artifact converted to the compact dataset:
 python examples/tourism_competition/terminal_forecast.py
 ```
 
+The full migrated workflow is config-driven from
+`examples/tourism_competition/data/config.yaml`:
+
+```bash
+python examples/tourism_competition/run_forecast.py
+```
+
 Model-based initial forecasts can be generated from the observed target data:
 
 ```bash
 python examples/tourism_competition/initial_forecast.py
+```
+
+Reference forecasts can be generated from arbitrary exogenous variables `X`.
+In this example, Baidu search and flights are tourism-specific X variables, and
+the migrated reference stage defines three named X cases: `search_arimax`,
+`search_ratio`, and `flight_growth`.
+
+```bash
+python examples/tourism_competition/reference_forecast.py
 ```
 
 The migrated terminal stage can also be chained into the recovery curve stage:
@@ -31,8 +47,16 @@ The migrated terminal stage can also be chained into the recovery curve stage:
 python examples/tourism_competition/recovery_curve_forecast.py
 ```
 
-Use `--initial-source base_models` to replace the converted legacy reference
-forecast with the model-based initial forecast.
+The full runner uses the configured X-based reference forecasts as the initial
+anchor and the converted legacy baseline as the terminal-stage baseline unless a
+package-native base configuration is added to `config.yaml`.
+
+Migration checks use `utilsforecast` metrics to compare migrated outputs against
+the converted legacy artifacts:
+
+```bash
+python examples/tourism_competition/evaluate_migration.py
+```
 
 The legacy artifacts can be converted to the compact recovery forecasting data
 format:

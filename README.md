@@ -68,8 +68,9 @@ riseforecast/
   pipeline.py
 ```
 
-Implemented stages now include model-based initial forecasts, intervention-adjusted
-terminal forecasts, and recovery curve forecasts:
+Implemented stages now include model-based initial forecasts, external-signal
+reference forecasts, intervention-adjusted terminal forecasts, and recovery curve
+forecasts:
 
 ```python
 from riseforecast import (
@@ -102,7 +103,7 @@ forecast = RecoveryCurveForecaster(
 The same workflow can start from the compact data format:
 
 ```python
-from riseforecast import RecoveryDataset
+from riseforecast import RecoveryDataset, RecoveryForecastingPipeline
 
 dataset = RecoveryDataset.from_directory("examples/tourism_competition/data")
 
@@ -110,6 +111,12 @@ observed = dataset.observed_target()
 baseline = dataset.base_forecast()
 reference = dataset.reference_forecast()
 coefficients = dataset.coefficients()
+
+forecast = (
+    RecoveryForecastingPipeline.from_dataset(dataset)
+    .fit_dataset(dataset)
+    .predict()
+)
 ```
 
 Base forecasts can now be generated from observed data:
@@ -141,6 +148,29 @@ initial = InitialForecaster(
 ).forecast(dataset.observed_target())
 
 initial_anchor = initial.initial
+```
+
+Reference forecasts estimate the near-term recovery state from arbitrary
+exogenous variables `X`. In the tourism competition, Baidu search and flights are
+just two tourism-specific X variables. The three reference cases are configured as
+named X cases:
+
+```python
+from riseforecast import ReferenceForecaster, ReferenceXSpec
+
+reference = ReferenceForecaster(
+    start="2023-01",
+    end="2023-06",
+    train_end="2023-01",
+    specs=(
+        ReferenceXSpec("search_index", method="arimax", name="search_arimax", signal_lag=1),
+        ReferenceXSpec("search_index", method="ratio", name="search_ratio", signal_lag=1),
+        ReferenceXSpec("flight_capacity", method="growth_rate", name="flight_growth"),
+    ),
+).forecast(
+    observed=dataset.observed_target(),
+    signals=dataset.exogenous_variables(),
+)
 ```
 
 Implemented base model names include:
@@ -194,10 +224,16 @@ python examples/tourism_competition/convert_legacy_data.py
 Run migrated examples against the converted data:
 
 ```bash
+python examples/tourism_competition/run_forecast.py
 python examples/tourism_competition/terminal_forecast.py
 python examples/tourism_competition/initial_forecast.py
+python examples/tourism_competition/reference_forecast.py
 python examples/tourism_competition/recovery_curve_forecast.py
+python examples/tourism_competition/evaluate_migration.py
 ```
+
+The migration evaluation script uses `utilsforecast.evaluation.evaluate` and
+`utilsforecast.losses` for MAE, RMSE, MAPE, SMAPE, bias, MASE, and RMSSE checks.
 
 ## Data Format
 
@@ -240,13 +276,14 @@ The `kind` column describes the role of each row:
 ```text
 observed
 signal
+exogenous
 base_forecast
 reference_forecast
 terminal_forecast
 recovery_forecast
 ```
 
-The `name` column identifies the target, signal, model, or curve:
+The `name` column identifies the target, exogenous variable, model, or curve:
 
 ```text
 target
@@ -262,6 +299,7 @@ For example:
 
 ```text
 2023-02-01,canada,signal,search_index,7512,,
+2023-02-01,canada,exogenous,flight_capacity,120,,
 2024-07-01,canada,base_forecast,legacy_ensemble,94848.9,,
 2024-07-01,canada,terminal_forecast,intervention_adjusted,66394.2,,
 ```
@@ -281,7 +319,29 @@ dates:
   forecast_start: "2023-08"
   terminal_date: "2024-07"
   forecast_end: "2024-07"
+reference:
+  start: "2023-01"
+  end: "2023-06"
+  train_end: "2023-01"
+  x:
+    - name: search_arimax
+      variables: [search_index]
+      method: arimax
+      lag: 1
+    - name: search_ratio
+      variables: [search_index]
+      method: ratio
+      lag: 1
+      ratio_window: 36
+    - name: flight_growth
+      variables: [flight_capacity]
+      method: growth_rate
 ```
+
+`RecoveryForecastingPipeline.from_dataset(dataset)` consumes these settings and
+runs the implemented stages from the compact dataset. If no package-native base
+model configuration is supplied, the pipeline uses the converted
+`base_forecast / legacy_ensemble` rows as the terminal-stage baseline.
 
 For the tourism competition, the legacy artifacts map into this structure as:
 

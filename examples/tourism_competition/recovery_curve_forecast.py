@@ -9,7 +9,9 @@ from riseforecast import (
     InitialForecaster,
     RecoveryCurveForecaster,
     RecoveryDataset,
+    ReferenceForecaster,
     intervention_terminal_forecast,
+    reference_specs_from_config,
 )
 
 
@@ -23,7 +25,7 @@ def main() -> None:
     parser.add_argument("--initial-date")
     parser.add_argument(
         "--initial-source",
-        choices=("base_models", "legacy_reference"),
+        choices=("signal_reference", "base_models", "legacy_reference"),
         default="legacy_reference",
     )
     parser.add_argument(
@@ -46,6 +48,17 @@ def main() -> None:
     baseline = dataset.base_forecast()
     if args.initial_source == "legacy_reference":
         reference = dataset.reference_forecast()
+    elif args.initial_source == "signal_reference":
+        reference = ReferenceForecaster(
+            start=dates.get("observed_until"),
+            end=initial_date,
+            train_end=dates.get("observed_until"),
+            frequency=dataset.config.get("frequency", "MS"),
+            specs=reference_specs_from_config(dataset.config),
+        ).forecast(
+            observed=dataset.observed_target(),
+            signals=dataset.exogenous_variables(),
+        ).values
     else:
         models = tuple(
             model.strip() for model in args.initial_models.split(",") if model.strip()

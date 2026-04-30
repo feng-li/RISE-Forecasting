@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from riseforecast.curves import RecoveryCurveForecast
     from riseforecast.data import ForecastFrame
+    from riseforecast.initial import InitialForecast
     from riseforecast.intervention import InterventionTerminalForecast
 
 
@@ -20,6 +21,7 @@ class PipelineState:
     """Fitted artifacts produced by the three RISE stages."""
 
     base_forecast: ForecastFrame | None = None
+    initial_forecast: InitialForecast | None = None
     reference_forecast: ForecastFrame | None = None
     recovery_coefficients: pd.Series | None = None
     terminal_forecast: InterventionTerminalForecast | None = None
@@ -54,6 +56,19 @@ class RecoveryForecastingPipeline:
         self._has_external_signals = external_signals is not None
         self._has_hierarchy = hierarchy is not None
         self._has_recovery_scores = recovery_scores is not None
+        if self.config.initial is not None:
+            from riseforecast.initial import InitialForecaster
+
+            self.state.initial_forecast = InitialForecaster(
+                initial_date=self.config.initial_date,
+                train_end=self.config.initial.train_end,
+                models=self.config.initial.models,
+                ensemble=self.config.initial.ensemble,
+                frequency=self.config.frequency,
+            ).forecast(observed)
+            self.state.reference_forecast = (
+                self.state.initial_forecast.as_forecast_frame()
+            )
         return self
 
     def predict(self) -> ForecastFrame:

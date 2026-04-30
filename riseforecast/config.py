@@ -45,6 +45,20 @@ class ReferenceForecastConfig:
 
 
 @dataclass(frozen=True)
+class InitialForecastConfig:
+    """Configuration for model-based initial recovery forecasts."""
+
+    train_end: str | None = None
+    models: tuple[str, ...] = (
+        "seasonal_naive",
+        "random_walk_drift",
+        "arima",
+        "ets",
+    )
+    ensemble: EnsembleName = "mean"
+
+
+@dataclass(frozen=True)
 class RecoveryCoefficientConfig:
     """Configuration for destination/entity recovery coefficients."""
 
@@ -74,6 +88,7 @@ class PipelineConfig:
     forecast_start: str
     forecast_end: str
     frequency: str = "MS"
+    initial: InitialForecastConfig | None = None
     base: BaseForecastConfig | None = None
     reference: ReferenceForecastConfig | None = None
     recovery: RecoveryCoefficientConfig = field(

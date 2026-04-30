@@ -19,11 +19,20 @@ artifact converted to the compact dataset:
 python examples/tourism_competition/terminal_forecast.py
 ```
 
+Model-based initial forecasts can be generated from the observed target data:
+
+```bash
+python examples/tourism_competition/initial_forecast.py
+```
+
 The migrated terminal stage can also be chained into the recovery curve stage:
 
 ```bash
 python examples/tourism_competition/recovery_curve_forecast.py
 ```
+
+Use `--initial-source base_models` to replace the converted legacy reference
+forecast with the model-based initial forecast.
 
 The legacy artifacts can be converted to the compact recovery forecasting data
 format:

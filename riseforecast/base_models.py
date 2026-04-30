@@ -506,21 +506,32 @@ def forecast_panel(
     panel = panel.sort_index()
     if train_end is not None:
         panel = panel.loc[: pd.Timestamp(train_end)]
-    if panel.empty:
+    valid_panel = panel.loc[panel.notna().any(axis=1)]
+    if valid_panel.empty:
         raise ValueError("observed panel is empty after applying train_end.")
+    panel = panel.loc[: valid_panel.index[-1]]
 
+    forecast_index = _future_index(panel.index[-1], horizon, frequency)
+    forecast_end = forecast_index[-1]
     forecasts: dict[str, BaseForecast] = {}
     for model_name in models:
         columns = {}
         for series_id in panel.columns:
+            series = panel[series_id]
+            prepared = _prepare_series(series)
+            series_horizon = _horizon_to_date(
+                last_observed_date=prepared.index[-1],
+                forecast_end=forecast_end,
+                frequency=frequency,
+            )
             columns[series_id] = forecast_series(
-                panel[series_id],
+                series,
                 model_name=model_name,
-                horizon=horizon,
+                horizon=series_horizon,
                 frequency=frequency,
                 registry=registry,
-            )
-        values = pd.DataFrame(columns)
+            ).reindex(forecast_index)
+        values = pd.DataFrame(columns, index=forecast_index)
         forecasts[model_name] = BaseForecast(values=values, model_name=model_name)
     return forecasts
 
@@ -548,6 +559,19 @@ def _future_index(
     offset = pd.tseries.frequencies.to_offset(frequency)
     start = pd.Timestamp(last_observed_date) + offset
     return pd.date_range(start=start, periods=horizon, freq=frequency)
+
+
+def _horizon_to_date(
+    last_observed_date: pd.Timestamp,
+    forecast_end: pd.Timestamp,
+    frequency: str,
+) -> int:
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    start = pd.Timestamp(last_observed_date) + offset
+    dates = pd.date_range(start=start, end=forecast_end, freq=frequency)
+    if len(dates) == 0:
+        raise ValueError("forecast_end must be after each series' last observation.")
+    return len(dates)
 
 
 def _fit_statsforecast_model(model: object, y: pd.Series) -> object | None:

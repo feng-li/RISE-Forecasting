@@ -104,3 +104,27 @@ def test_base_forecaster_does_not_backfill_before_series_start() -> None:
 
     assert forecast.index[0] == pd.Timestamp("2020-06-01")
     assert forecast.iloc[0] == 16.0
+
+
+def test_forecast_panel_extends_ragged_series_to_common_horizon() -> None:
+    index = pd.date_range("2020-01-01", periods=6, freq="MS")
+    observed = pd.DataFrame(
+        {
+            "complete": [10.0, 12.0, 14.0, 16.0, 18.0, 20.0],
+            "ragged": [10.0, 12.0, 14.0, 16.0, np.nan, np.nan],
+        },
+        index=index,
+    )
+
+    forecasts = forecast_panel(
+        observed,
+        models=("random_walk_drift",),
+        horizon=2,
+        train_end="2020-06",
+    )
+
+    values = forecasts["random_walk_drift"].values
+    assert values.index.tolist() == list(
+        pd.date_range("2020-07-01", periods=2, freq="MS")
+    )
+    assert not values["ragged"].isna().any()

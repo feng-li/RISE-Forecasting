@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from riseforecast import (
+    InitialForecaster,
     RecoveryCurveForecaster,
     RecoveryDataset,
     intervention_terminal_forecast,
@@ -19,6 +20,15 @@ def main() -> None:
         type=Path,
         default=Path("examples/tourism_competition/data"),
     )
+    parser.add_argument(
+        "--initial-source",
+        choices=("base_models", "legacy_reference"),
+        default="base_models",
+    )
+    parser.add_argument(
+        "--initial-models",
+        default="seasonal_naive,random_walk_drift,arima,ets",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -29,12 +39,24 @@ def main() -> None:
         dataset.coefficients(),
         terminal_date=dates["terminal_date"],
     )
+    if args.initial_source == "legacy_reference":
+        initial = dataset.reference_forecast()
+    else:
+        models = tuple(
+            model.strip() for model in args.initial_models.split(",") if model.strip()
+        )
+        initial = InitialForecaster(
+            initial_date=dates["initial_date"],
+            train_end=dates.get("observed_until"),
+            models=models,
+            frequency=dataset.config.get("frequency", "MS"),
+        ).forecast(dataset.observed_target()).values
     forecast = RecoveryCurveForecaster(
         initial_date=dates["initial_date"],
         forecast_start=dates["forecast_start"],
         forecast_end=dates["forecast_end"],
     ).forecast(
-        initial_forecast=dataset.reference_forecast(),
+        initial_forecast=initial,
         terminal_forecast=terminal,
     )
 

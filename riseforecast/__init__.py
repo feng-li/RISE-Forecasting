@@ -22,6 +22,11 @@ from riseforecast.curves import (
     recovery_curve_forecast,
 )
 from riseforecast.data import RecoveryDataset
+from riseforecast.initial import (
+    InitialForecast,
+    InitialForecaster,
+    initial_forecast,
+)
 from riseforecast.intervention import (
     InterventionTerminalForecast,
     InterventionTerminalForecaster,
@@ -37,6 +42,8 @@ except PackageNotFoundError:  # pragma: no cover - editable tree before install
 __all__ = [
     "BaseForecast",
     "BaseForecaster",
+    "InitialForecast",
+    "InitialForecaster",
     "InterventionTerminalForecast",
     "InterventionTerminalForecaster",
     "PipelineConfig",
@@ -48,6 +55,7 @@ __all__ = [
     "default_model_registry",
     "forecast_panel",
     "forecast_series",
+    "initial_forecast",
     "intervention_terminal_forecast",
     "recovery_curve_forecast",
 ]

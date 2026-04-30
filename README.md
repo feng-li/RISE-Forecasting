@@ -54,8 +54,10 @@ Current package skeleton:
 
 ```text
 riseforecast/
+  base_models.py
   config.py
   data.py
+  initial.py
   intervention.py
   recovery.py
   curves.py
@@ -66,11 +68,21 @@ riseforecast/
   pipeline.py
 ```
 
-The first implemented functional stage is the intervention-adjusted terminal
-forecast, and it is now wired into the recovery curve stage:
+Implemented stages now include model-based initial forecasts, intervention-adjusted
+terminal forecasts, and recovery curve forecasts:
 
 ```python
-from riseforecast import RecoveryCurveForecaster, intervention_terminal_forecast
+from riseforecast import (
+    InitialForecaster,
+    RecoveryCurveForecaster,
+    intervention_terminal_forecast,
+)
+
+initial = InitialForecaster(
+    initial_date="2023-06",
+    train_end="2023-01",
+    models=("seasonal_naive", "random_walk_drift", "arima", "ets"),
+).forecast(observed_df)
 
 terminal = intervention_terminal_forecast(
     base_forecast=baseline_df,
@@ -82,7 +94,7 @@ forecast = RecoveryCurveForecaster(
     initial_date="2023-06",
     forecast_start="2023-08",
 ).forecast(
-    initial_forecast=reference_df,
+    initial_forecast=initial.values,
     terminal_forecast=terminal,
 )
 ```
@@ -113,6 +125,22 @@ base_forecasts = forecast_panel(
 )
 
 baseline = base_forecasts["holt"].values
+```
+
+Initial forecasts can also be generated from observed data with the same model
+registry. This creates the near-term path ending at `initial_date`; the final row is
+the initial anchor for the recovery curve:
+
+```python
+from riseforecast import InitialForecaster
+
+initial = InitialForecaster(
+    initial_date="2023-06",
+    train_end="2023-01",
+    models=("seasonal_naive", "random_walk_drift", "arima", "ets"),
+).forecast(dataset.observed_target())
+
+initial_anchor = initial.initial
 ```
 
 Implemented base model names include:
@@ -167,6 +195,7 @@ Run migrated examples against the converted data:
 
 ```bash
 python examples/tourism_competition/terminal_forecast.py
+python examples/tourism_competition/initial_forecast.py
 python examples/tourism_competition/recovery_curve_forecast.py
 ```
 

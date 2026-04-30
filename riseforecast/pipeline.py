@@ -10,6 +10,7 @@ from riseforecast.config import PipelineConfig
 if TYPE_CHECKING:
     import pandas as pd
 
+    from riseforecast.curves import RecoveryCurveForecast
     from riseforecast.data import ForecastFrame
     from riseforecast.intervention import InterventionTerminalForecast
 
@@ -22,6 +23,7 @@ class PipelineState:
     reference_forecast: ForecastFrame | None = None
     recovery_coefficients: pd.Series | None = None
     terminal_forecast: InterventionTerminalForecast | None = None
+    recovery_curve_forecast: RecoveryCurveForecast | None = None
 
 
 @dataclass

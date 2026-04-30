@@ -67,15 +67,23 @@ riseforecast/
 ```
 
 The first implemented functional stage is the intervention-adjusted terminal
-forecast:
+forecast, and it is now wired into the recovery curve stage:
 
 ```python
-from riseforecast import intervention_terminal_forecast
+from riseforecast import RecoveryCurveForecaster, intervention_terminal_forecast
 
 terminal = intervention_terminal_forecast(
     base_forecast=baseline_df,
     coefficients=recovery_coefficients,
     terminal_date="2024-07",
+)
+
+forecast = RecoveryCurveForecaster(
+    initial_date="2023-06",
+    forecast_start="2023-08",
+).forecast(
+    initial_forecast=reference_df,
+    terminal_forecast=terminal,
 )
 ```
 
@@ -90,6 +98,116 @@ To run the current tests:
 ```bash
 source ~/.virtualenvs/py3.12-forecasting/bin/activate
 python -m pytest
+```
+
+The tourism competition artifacts have also been converted to the compact
+three-file recovery forecasting format:
+
+```text
+examples/tourism_competition/data/series.csv
+examples/tourism_competition/data/panel.csv
+examples/tourism_competition/data/config.yaml
+```
+
+Regenerate them with:
+
+```bash
+python examples/tourism_competition/convert_legacy_data.py
+```
+
+## Data Format
+
+The migration uses a compact, general recovery forecasting data structure with
+three files:
+
+```text
+series.csv
+panel.csv
+config.yaml
+```
+
+The format is entity-neutral. A `series_id` can be a country, product, store,
+route, market, sector, or any other quantity of interest recovering after a
+shock.
+
+### `series.csv`
+
+`series.csv` stores one row per quantity of interest. It contains static
+metadata, grouping information, recovery scores, and optional intervention
+coefficients.
+
+Example columns:
+
+```text
+series_id,series_name,target_name,unit,group,subgroup,policy,distance,recovery,coefficient
+canada,Canada,outbound_tourists,count,America,,3,1,2,0.70
+```
+
+### `panel.csv`
+
+`panel.csv` stores all time-varying values in one long table:
+
+```text
+date,series_id,kind,name,value,lower,upper
+```
+
+The `kind` column describes the role of each row:
+
+```text
+observed
+signal
+base_forecast
+reference_forecast
+terminal_forecast
+recovery_forecast
+```
+
+The `name` column identifies the target, signal, model, or curve:
+
+```text
+target
+search_index
+flight_capacity
+legacy_ensemble
+legacy_average
+intervention_adjusted
+legacy_final
+```
+
+For example:
+
+```text
+2023-02-01,canada,signal,search_index,7512,,
+2024-07-01,canada,base_forecast,legacy_ensemble,94848.9,,
+2024-07-01,canada,terminal_forecast,intervention_adjusted,66394.2,,
+```
+
+### `config.yaml`
+
+`config.yaml` stores global recovery-forecasting settings:
+
+```yaml
+frequency: MS
+shock:
+  start: "2020-01"
+  end: "2022-12"
+dates:
+  observed_until: "2023-01"
+  initial_date: "2023-06"
+  forecast_start: "2023-08"
+  terminal_date: "2024-07"
+  forecast_end: "2024-07"
+```
+
+For the tourism competition, the legacy artifacts map into this structure as:
+
+```text
+data.xlsx          -> observed / target
+composite index    -> signal / search_index
+flight.xlsx        -> signal / flight_capacity
+baseline.xlsx      -> base_forecast / legacy_ensemble
+reference.xlsx     -> reference_forecast / legacy_average
+point_forecast.xlsx -> recovery_forecast / legacy_final
 ```
 
 ## Legacy Paper Implementation

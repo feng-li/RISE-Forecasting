@@ -9,6 +9,11 @@ recovery curve.
 from importlib.metadata import PackageNotFoundError, version
 
 from riseforecast.config import PipelineConfig
+from riseforecast.curves import (
+    RecoveryCurveForecast,
+    RecoveryCurveForecaster,
+    recovery_curve_forecast,
+)
 from riseforecast.intervention import (
     InterventionTerminalForecast,
     InterventionTerminalForecaster,
@@ -25,7 +30,10 @@ __all__ = [
     "InterventionTerminalForecast",
     "InterventionTerminalForecaster",
     "PipelineConfig",
+    "RecoveryCurveForecast",
+    "RecoveryCurveForecaster",
     "RecoveryForecastingPipeline",
     "__version__",
     "intervention_terminal_forecast",
+    "recovery_curve_forecast",
 ]

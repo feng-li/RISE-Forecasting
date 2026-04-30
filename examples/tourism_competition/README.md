@@ -18,3 +18,16 @@ artifact:
 ```bash
 python examples/tourism_competition/terminal_forecast.py
 ```
+
+The migrated terminal stage can also be chained into the recovery curve stage:
+
+```bash
+python examples/tourism_competition/recovery_curve_forecast.py
+```
+
+The legacy artifacts can be converted to the compact recovery forecasting data
+format:
+
+```bash
+python examples/tourism_competition/convert_legacy_data.py
+```

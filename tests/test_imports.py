@@ -1,4 +1,8 @@
-from riseforecast import PipelineConfig, RecoveryForecastingPipeline
+from riseforecast import (
+    PipelineConfig,
+    RecoveryCurveForecaster,
+    RecoveryForecastingPipeline,
+)
 
 
 def test_package_imports() -> None:
@@ -10,4 +14,9 @@ def test_package_imports() -> None:
         forecast_end="2024-07",
     )
     pipeline = RecoveryForecastingPipeline(config)
+    forecaster = RecoveryCurveForecaster(
+        initial_date="2023-06",
+        forecast_start="2023-08",
+    )
     assert pipeline.config.initial_date == "2023-06"
+    assert forecaster.forecast_start == "2023-08"

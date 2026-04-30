@@ -1,35 +1,48 @@
-"""Entry point placeholder for reproducing the tourism competition example."""
+"""Run the migrated tourism recovery forecast from the compact dataset."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
-import yaml
-
-from riseforecast import PipelineConfig, RecoveryForecastingPipeline
-
-
-def load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
+from riseforecast import (
+    RecoveryCurveForecaster,
+    RecoveryDataset,
+    intervention_terminal_forecast,
+)
 
 
 def main() -> None:
-    config_path = Path(__file__).with_name("config.yaml")
-    raw_config = load_config(config_path)
-    config = PipelineConfig(
-        shock_start=raw_config["shock_start"],
-        initial_date=raw_config["initial_date"],
-        terminal_date=raw_config["terminal_date"],
-        forecast_start=raw_config["forecast_start"],
-        forecast_end=raw_config["forecast_end"],
-        frequency=raw_config.get("frequency", "MS"),
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("examples/tourism_competition/data"),
     )
-    pipeline = RecoveryForecastingPipeline(config)
-    raise SystemExit(
-        "Package skeleton is ready. Implement tourism data loading and stage "
-        f"ports before running {pipeline.__class__.__name__} end to end."
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+
+    dataset = RecoveryDataset.from_directory(args.data_dir)
+    dates = dataset.config["dates"]
+    terminal = intervention_terminal_forecast(
+        dataset.base_forecast(),
+        dataset.coefficients(),
+        terminal_date=dates["terminal_date"],
     )
+    forecast = RecoveryCurveForecaster(
+        initial_date=dates["initial_date"],
+        forecast_start=dates["forecast_start"],
+        forecast_end=dates["forecast_end"],
+    ).forecast(
+        initial_forecast=dataset.reference_forecast(),
+        terminal_forecast=terminal,
+    )
+
+    if args.output is None:
+        print(forecast.values.to_string())
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        forecast.values.to_excel(args.output)
 
 
 if __name__ == "__main__":

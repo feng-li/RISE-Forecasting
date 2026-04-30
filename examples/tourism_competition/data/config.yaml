@@ -1,0 +1,31 @@
+frequency: MS
+shock:
+  start: 2020-01
+  end: 2022-12
+dates:
+  observed_until: 2023-01
+  initial_date: 2023-06
+  forecast_start: 2023-08
+  terminal_date: 2024-07
+  forecast_end: 2024-07
+columns:
+  date: date
+  series_id: series_id
+  kind: kind
+  name: name
+  value: value
+  lower: lower
+  upper: upper
+kinds:
+- observed
+- signal
+- base_forecast
+- reference_forecast
+- terminal_forecast
+- recovery_forecast
+notes:
+- series_id is the general quantity of interest; in this example it maps to tourism
+  destinations.
+- coefficient values in series.csv follow the legacy notebook implementation.
+- reference_forecast rows are dated January through June 2023 to match the legacy
+  reference.xlsx artifact.

@@ -34,8 +34,10 @@ def test_converted_tourism_data_uses_compact_schema() -> None:
     assert set(series["series_id"]) == set(panel["series_id"])
     assert set(config["kinds"]) <= set(panel["kind"])
     assert config["base"]["train_end"] == "2019-12"
-    assert config["base"]["horizon"] == 55
+    assert config["base"]["horizon"] == 60
     assert "arima" in config["base"]["models"]
+    assert config["curve"]["trend_history_start"] == "2022-01"
+    assert "2024-12" in config["curve"]["logistic_anchor_dates"]
     assert len(panel) == 10188
 
 

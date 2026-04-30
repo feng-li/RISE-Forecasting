@@ -19,6 +19,7 @@ from riseforecast.config import PipelineConfig, ReferenceXConfig
 from riseforecast.curves import (
     RecoveryCurveForecast,
     RecoveryCurveForecaster,
+    extract_trend_component,
     recover_full_forecast,
     recovery_curve_forecast,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "__version__",
     "default_model_registry",
     "evaluate_forecast_matrix",
+    "extract_trend_component",
     "forecast_panel",
     "forecast_series",
     "initial_forecast",

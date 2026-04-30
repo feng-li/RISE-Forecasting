@@ -102,6 +102,10 @@ class CurveConfig:
     curves: tuple[CurveName, ...] = ("linear", "quadratic", "logistic")
     seasonal_period: int = 12
     combine: EnsembleName = "mean"
+    trend_history_start: str | None = None
+    trend_history_end: str | None = None
+    quadratic_terminal_weight: float = 18.0
+    logistic_anchor_dates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -259,6 +263,10 @@ def _parse_curve(data: Any) -> CurveConfig:
         curves=tuple(data.get("curves", ("linear", "quadratic", "logistic"))),
         seasonal_period=int(data.get("seasonal_period", 12)),
         combine=data.get("combine", "mean"),
+        trend_history_start=_optional_str(data.get("trend_history_start")),
+        trend_history_end=_optional_str(data.get("trend_history_end")),
+        quadratic_terminal_weight=float(data.get("quadratic_terminal_weight", 18.0)),
+        logistic_anchor_dates=tuple(data.get("logistic_anchor_dates", ())),
     )
 
 

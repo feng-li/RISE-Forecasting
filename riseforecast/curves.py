@@ -131,6 +131,7 @@ class RecoveryCurveForecast:
     seasonal_multipliers: pd.DataFrame | None = None
     initial_trend: pd.Series | None = None
     terminal_trend: pd.Series | None = None
+    trend_history: pd.DataFrame | None = None
 
     def to_frame(self) -> pd.DataFrame:
         """Return a tidy long-form recovery forecast table."""
@@ -154,12 +155,16 @@ class RecoveryCurveForecaster:
     forecast_end: DateLike | None = None
     frequency: str = "MS"
     curve_names: tuple[str, ...] = ("linear", "quadratic", "logistic")
+    quadratic_terminal_weight: float = 18.0
+    logistic_anchor_dates: tuple[DateLike, ...] = ()
 
     def forecast(
         self,
         initial_forecast: pd.Series | pd.DataFrame,
         terminal_forecast: InterventionTerminalForecast | pd.Series,
         seasonal_multipliers: pd.Series | pd.DataFrame | None = None,
+        trend_history: pd.DataFrame | None = None,
+        base_forecast: pd.DataFrame | None = None,
     ) -> RecoveryCurveForecast:
         """Generate a recovery curve forecast.
 
@@ -204,11 +209,22 @@ class RecoveryCurveForecaster:
         )
         initial_trend = initial / multiplier_frame.loc[initial_date]
         terminal_trend = terminal / multiplier_frame.loc[terminal_date]
+        trend_history = _prepare_optional_trend_history(
+            trend_history=trend_history,
+            entities=entities,
+        )
+        base_trend_forecast = _base_trend_forecast(
+            base_forecast=base_forecast,
+            seasonal_multipliers=seasonal_multipliers,
+            entities=entities,
+        )
 
         trend_component_frames = self._build_trend_component_frames(
             initial_trend=initial_trend,
             terminal_trend=terminal_trend,
             dates=full_dates,
+            trend_history=trend_history,
+            base_trend_forecast=base_trend_forecast,
         )
         trend_values = sum(trend_component_frames.values()) / len(
             trend_component_frames
@@ -243,6 +259,7 @@ class RecoveryCurveForecaster:
             seasonal_multipliers=seasonal_components,
             initial_trend=initial_trend.rename("initial_trend"),
             terminal_trend=terminal_trend.rename("terminal_trend"),
+            trend_history=trend_history,
         )
 
     def _build_trend_component_frames(
@@ -250,6 +267,8 @@ class RecoveryCurveForecaster:
         initial_trend: pd.Series,
         terminal_trend: pd.Series,
         dates: pd.DatetimeIndex,
+        trend_history: pd.DataFrame | None,
+        base_trend_forecast: pd.DataFrame | None,
     ) -> dict[str, pd.DataFrame]:
         components: dict[str, pd.DataFrame] = {}
         for curve_name in self.curve_names:
@@ -259,7 +278,19 @@ class RecoveryCurveForecaster:
                     curve_name=curve_name,
                     initial=float(initial_trend.loc[entity]),
                     terminal=float(terminal_trend.loc[entity]),
-                    periods=len(dates),
+                    dates=dates,
+                    history=(
+                        None
+                        if trend_history is None
+                        else trend_history.loc[:, entity].dropna()
+                    ),
+                    base_trend_forecast=(
+                        None
+                        if base_trend_forecast is None
+                        else base_trend_forecast.loc[:, entity].dropna()
+                    ),
+                    quadratic_terminal_weight=self.quadratic_terminal_weight,
+                    logistic_anchor_dates=self.logistic_anchor_dates,
                 )
                 columns[entity] = path
             components[curve_name] = pd.DataFrame(columns, index=dates)
@@ -277,6 +308,10 @@ def recovery_curve_forecast(
     frequency: str = "MS",
     curve_names: tuple[str, ...] = ("linear", "quadratic", "logistic"),
     seasonal_multipliers: pd.Series | pd.DataFrame | None = None,
+    trend_history: pd.DataFrame | None = None,
+    base_forecast: pd.DataFrame | None = None,
+    quadratic_terminal_weight: float = 18.0,
+    logistic_anchor_dates: tuple[DateLike, ...] = (),
 ) -> RecoveryCurveForecast:
     """Convenience wrapper for recovery curve forecasts."""
 
@@ -286,11 +321,15 @@ def recovery_curve_forecast(
         forecast_end=forecast_end,
         frequency=frequency,
         curve_names=curve_names,
+        quadratic_terminal_weight=quadratic_terminal_weight,
+        logistic_anchor_dates=logistic_anchor_dates,
     )
     return forecaster.forecast(
         initial_forecast=initial_forecast,
         terminal_forecast=terminal_forecast,
         seasonal_multipliers=seasonal_multipliers,
+        trend_history=trend_history,
+        base_forecast=base_forecast,
     )
 
 
@@ -309,21 +348,76 @@ def recover_full_forecast(
     return curve * components
 
 
+def extract_trend_component(
+    values: pd.DataFrame,
+    seasonal_components: pd.Series | pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Remove seasonality from full values to obtain trend components."""
+
+    matrix = _prepare_matrix(values)
+    components = _coerce_seasonal_components(
+        seasonal_components=seasonal_components,
+        entities=pd.Index(matrix.columns),
+        dates=pd.DatetimeIndex(matrix.index),
+    )
+    return matrix / components
+
+
 def _build_entity_trend_path(
     curve_name: str,
     initial: float,
     terminal: float,
-    periods: int,
+    dates: pd.DatetimeIndex,
+    history: pd.Series | None,
+    base_trend_forecast: pd.Series | None,
+    quadratic_terminal_weight: float,
+    logistic_anchor_dates: tuple[DateLike, ...],
 ) -> np.ndarray:
-    anchors = CurveAnchors(initial=initial, terminal=terminal, periods=periods)
+    anchors = CurveAnchors(initial=initial, terminal=terminal, periods=len(dates))
 
     if curve_name == "linear":
         return linear_curve(anchors)
     if curve_name == "quadratic":
-        return quadratic_curve(anchors)
+        return quadratic_curve(
+            anchors,
+            history=history,
+            terminal_weight=quadratic_terminal_weight,
+        )
     if curve_name == "logistic":
-        return logistic_curve(anchors)
+        return paper_logistic_curve(
+            anchors=anchors,
+            dates=dates,
+            history=history,
+            base_trend_forecast=base_trend_forecast,
+            anchor_dates=logistic_anchor_dates,
+        )
     raise ValueError(f"Unknown curve name: {curve_name}")
+
+
+def paper_logistic_curve(
+    anchors: CurveAnchors,
+    dates: pd.DatetimeIndex,
+    history: pd.Series | None = None,
+    base_trend_forecast: pd.Series | None = None,
+    anchor_dates: tuple[DateLike, ...] = (),
+) -> np.ndarray:
+    """Fit a logistic trend curve to paper-style critical trend points."""
+
+    points = _logistic_fit_points(
+        initial=anchors.initial,
+        dates=dates,
+        history=history,
+        base_trend_forecast=base_trend_forecast,
+        anchor_dates=anchor_dates,
+    )
+    if points is None:
+        return logistic_curve(anchors)
+
+    x, y, forecast_x = points
+    fitted = _fit_logistic_to_points(x=x, y=y, forecast_x=forecast_x)
+    if fitted is None:
+        return logistic_curve(anchors)
+    return fitted
 
 
 def _seasonal_multiplier_frame(
@@ -383,6 +477,119 @@ def _is_month_index(index: pd.Index) -> bool:
     except (TypeError, ValueError):
         return False
     return set(months).issubset(set(range(1, 13)))
+
+
+def _prepare_optional_trend_history(
+    trend_history: pd.DataFrame | None,
+    entities: pd.Index,
+) -> pd.DataFrame | None:
+    if trend_history is None:
+        return None
+    history = _prepare_matrix(trend_history).reindex(columns=entities)
+    if history.dropna(how="all").empty:
+        return None
+    return history
+
+
+def _base_trend_forecast(
+    base_forecast: pd.DataFrame | None,
+    seasonal_multipliers: pd.Series | pd.DataFrame | None,
+    entities: pd.Index,
+) -> pd.DataFrame | None:
+    if base_forecast is None:
+        return None
+    base = _prepare_matrix(base_forecast).reindex(columns=entities)
+    if base.dropna(how="all").empty:
+        return None
+    return extract_trend_component(base, seasonal_multipliers)
+
+
+def _logistic_fit_points(
+    initial: float,
+    dates: pd.DatetimeIndex,
+    history: pd.Series | None,
+    base_trend_forecast: pd.Series | None,
+    anchor_dates: tuple[DateLike, ...],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    points: list[tuple[pd.Timestamp, float]] = []
+    if history is not None and not history.dropna().empty:
+        history_values = history.dropna().astype(float)
+        points.append(
+            (pd.Timestamp(history_values.index[0]), float(history_values.iloc[0]))
+        )
+
+    points.append((pd.Timestamp(dates[0]), initial))
+
+    if base_trend_forecast is not None:
+        base = base_trend_forecast.dropna().astype(float)
+        for date in anchor_dates:
+            timestamp = pd.Timestamp(date)
+            if timestamp in base.index:
+                points.append((timestamp, float(base.loc[timestamp])))
+
+    points = _unique_positive_fit_points(points)
+    if len(points) < 3:
+        return None
+
+    origin = min(date for date, _ in points)
+    x = np.array([_month_distance(origin, date) for date, _ in points], dtype=float)
+    y = np.array([value for _, value in points], dtype=float)
+    forecast_x = np.array(
+        [_month_distance(origin, pd.Timestamp(date)) for date in dates],
+        dtype=float,
+    )
+    return x, y, forecast_x
+
+
+def _unique_positive_fit_points(
+    points: list[tuple[pd.Timestamp, float]],
+) -> list[tuple[pd.Timestamp, float]]:
+    unique: dict[pd.Timestamp, float] = {}
+    for date, value in points:
+        if np.isfinite(value) and value > 0:
+            unique[pd.Timestamp(date)] = float(value)
+    return sorted(unique.items(), key=lambda item: item[0])
+
+
+def _fit_logistic_to_points(
+    x: np.ndarray,
+    y: np.ndarray,
+    forecast_x: np.ndarray,
+) -> np.ndarray | None:
+    if len(x) < 3 or len(np.unique(x)) < 3 or (y <= 0).any():
+        return None
+
+    from scipy.optimize import curve_fit
+
+    def logistic(x_values: np.ndarray, limit: float, growth: float, midpoint: float):
+        return limit / (1 + np.exp(-growth * (x_values - midpoint)))
+
+    max_y = float(np.max(y))
+    span = max(float(np.max(x) - np.min(x)), 1.0)
+    initial = [max_y * 1.2, 0.2, float(np.median(x))]
+    bounds = (
+        [max_y, 1e-5, float(np.min(x) - 2 * span)],
+        [max_y * 100.0, 5.0, float(np.max(x) + 2 * span)],
+    )
+    try:
+        params, _ = curve_fit(
+            logistic,
+            x,
+            y,
+            p0=initial,
+            bounds=bounds,
+            maxfev=20000,
+        )
+    except (RuntimeError, ValueError, FloatingPointError):
+        return None
+    fitted = logistic(forecast_x, *params)
+    if not np.isfinite(fitted).all():
+        return None
+    return fitted
+
+
+def _month_distance(origin: pd.Timestamp, date: pd.Timestamp) -> int:
+    return (date.year - origin.year) * 12 + (date.month - origin.month)
 
 
 def _coerce_anchor_series(

@@ -523,7 +523,7 @@ def build_config() -> dict:
         },
         "base": {
             "train_end": "2019-12",
-            "horizon": 55,
+            "horizon": 60,
             "models": [
                 "seasonal_naive",
                 "random_walk_drift",
@@ -558,6 +558,14 @@ def build_config() -> dict:
                     "method": "growth_rate",
                 },
             ],
+        },
+        "curve": {
+            "curves": ["linear", "quadratic", "logistic"],
+            "seasonal_period": 12,
+            "trend_history_start": "2022-01",
+            "trend_history_end": "2023-06",
+            "quadratic_terminal_weight": 18,
+            "logistic_anchor_dates": ["2023-12", "2024-07", "2024-12"],
         },
         "columns": {
             "date": "date",

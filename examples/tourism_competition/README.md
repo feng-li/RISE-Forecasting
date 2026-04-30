@@ -49,10 +49,10 @@ python examples/tourism_competition/recovery_curve_forecast.py
 
 The full runner uses the configured package-native base models for the no-shock
 baseline and the configured X-based reference forecasts as the initial anchor. The
-recovery curve stage estimates STL seasonal multipliers from the base forecast, fits
-the recovery path on de-seasonalized trend anchors, and then re-seasonalizes the
-forecast. The returned forecast object keeps the trend recovery curve, seasonal
-components, and recovered full forecast separately.
+recovery curve stage estimates STL seasonal multipliers from historical pre-shock
+observations, fits the three paper-style trend curves, and then recovers the full
+forecast from the trend recovery curve and seasonal components. The returned
+forecast object keeps these pieces separately.
 Removing the `base:` section from `config.yaml` makes the pipeline fall back to
 the converted legacy baseline artifact.
 

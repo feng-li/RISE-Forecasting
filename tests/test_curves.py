@@ -5,6 +5,7 @@ from riseforecast.curves import (
     CurveAnchors,
     RecoveryCurveForecaster,
     build_recovery_curve,
+    extract_trend_component,
     linear_curve,
     recover_full_forecast,
     recovery_curve_forecast,
@@ -113,3 +114,80 @@ def test_recover_full_forecast_accepts_monthly_seasonal_components() -> None:
     forecast = recover_full_forecast(recovery_curve, seasonal)
 
     assert np.allclose(forecast["Canada"], [50.0, 60.0])
+
+
+def test_extract_trend_component_removes_seasonal_components() -> None:
+    full = pd.DataFrame(
+        {"Canada": [50.0, 60.0]},
+        index=pd.to_datetime(["2024-02-01", "2024-03-01"]),
+    )
+    seasonal = pd.Series({2: 2.0, 3: 1.5})
+
+    trend = extract_trend_component(full, seasonal)
+
+    assert np.allclose(trend["Canada"], [25.0, 40.0])
+
+
+def test_quadratic_curve_uses_trend_history_and_weighted_terminal() -> None:
+    trend_history = pd.DataFrame(
+        {"Canada": [10.0, 14.0, 20.0]},
+        index=pd.date_range("2024-01-01", periods=3, freq="MS"),
+    )
+    initial = pd.Series({"Canada": 30.0})
+    terminal = pd.Series({"Canada": 80.0})
+
+    result = RecoveryCurveForecaster(
+        initial_date="2024-04",
+        forecast_start="2024-05",
+        forecast_end="2024-06",
+        curve_names=("quadratic",),
+        quadratic_terminal_weight=18.0,
+    ).forecast(
+        initial_forecast=initial,
+        terminal_forecast=terminal,
+        trend_history=trend_history,
+    )
+
+    assert result.trend_history is not None
+    assert np.isclose(
+        result.trend_components["quadratic"].loc["2024-05-01", "Canada"],
+        54.45176180950921,
+    )
+
+
+def test_logistic_curve_uses_base_forecast_anchor_dates() -> None:
+    trend_history = pd.DataFrame(
+        {"Canada": [10.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    base_forecast = pd.DataFrame(
+        {"Canada": [40.0, 120.0]},
+        index=pd.to_datetime(["2024-04-01", "2024-06-01"]),
+    )
+    initial = pd.Series({"Canada": 20.0})
+    terminal = pd.Series({"Canada": 60.0})
+
+    result = RecoveryCurveForecaster(
+        initial_date="2024-03",
+        forecast_start="2024-04",
+        forecast_end="2024-05",
+        curve_names=("logistic",),
+        logistic_anchor_dates=("2024-04", "2024-06"),
+    ).forecast(
+        initial_forecast=initial,
+        terminal_forecast=terminal,
+        trend_history=trend_history,
+        base_forecast=base_forecast,
+    )
+
+    endpoint_only = RecoveryCurveForecaster(
+        initial_date="2024-03",
+        forecast_start="2024-04",
+        forecast_end="2024-05",
+        curve_names=("logistic",),
+    ).forecast(initial_forecast=initial, terminal_forecast=terminal)
+
+    assert not np.allclose(
+        result.trend_components["logistic"],
+        endpoint_only.trend_components["logistic"],
+    )

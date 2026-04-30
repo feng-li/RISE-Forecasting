@@ -27,6 +27,7 @@ class PipelineState:
     reference_forecast: ForecastFrame | None = None
     recovery_coefficients: pd.Series | None = None
     seasonal_multipliers: pd.DataFrame | None = None
+    trend_history: pd.DataFrame | None = None
     terminal_forecast: InterventionTerminalForecast | None = None
     recovery_curve_forecast: RecoveryCurveForecast | None = None
 
@@ -145,8 +146,9 @@ class RecoveryForecastingPipeline:
             observed=observed,
             fallback_name=base_forecast_name,
         )
-        self.state.seasonal_multipliers = self._seasonal_multipliers_from_base(
-            self.state.base_forecast.values,
+        self.state.seasonal_multipliers = self._seasonal_multipliers(
+            observed=observed,
+            base_forecast=self.state.base_forecast.values,
         )
         self.state.recovery_coefficients = dataset.coefficients()
 
@@ -166,6 +168,10 @@ class RecoveryForecastingPipeline:
             dataset=dataset,
             fallback_name=reference_forecast_name,
         )
+        self.state.trend_history = self._trend_history_for_curve(
+            observed=observed,
+            initial_forecast=initial_forecast,
+        )
         from riseforecast.curves import RecoveryCurveForecaster
 
         self.state.recovery_curve_forecast = RecoveryCurveForecaster(
@@ -174,10 +180,14 @@ class RecoveryForecastingPipeline:
             forecast_end=self.config.forecast_end,
             frequency=self.config.frequency,
             curve_names=self.config.curve.curves,
+            quadratic_terminal_weight=self.config.curve.quadratic_terminal_weight,
+            logistic_anchor_dates=self.config.curve.logistic_anchor_dates,
         ).forecast(
             initial_forecast=initial_forecast,
             terminal_forecast=self.state.terminal_forecast,
             seasonal_multipliers=self.state.seasonal_multipliers,
+            trend_history=self.state.trend_history,
+            base_forecast=self.state.base_forecast.values,
         )
         return self
 
@@ -239,15 +249,29 @@ class RecoveryForecastingPipeline:
             return self.state.initial_forecast.values
         return dataset.reference_forecast(name=fallback_name)
 
-    def _seasonal_multipliers_from_base(
+    def _seasonal_multipliers(
         self,
+        observed: pd.DataFrame,
         base_forecast: pd.DataFrame,
     ) -> pd.DataFrame | None:
+        from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
+
         period = self.config.curve.seasonal_period
+        seasonality_train = self._seasonality_training_sample(observed)
+        if len(seasonality_train.dropna(how="all")) >= period * 2:
+            try:
+                return stl_monthly_seasonal_multipliers(
+                    seasonality_train,
+                    period=period,
+                )
+            except ValueError as exc:
+                warnings.warn(
+                    f"Skipping STL seasonal decomposition of observed history: {exc}",
+                    stacklevel=2,
+                )
+
         if len(base_forecast.dropna(how="all")) < period * 2:
             return None
-
-        from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
 
         try:
             return stl_monthly_seasonal_multipliers(
@@ -260,6 +284,40 @@ class RecoveryForecastingPipeline:
                 stacklevel=2,
             )
             return None
+
+    def _seasonality_training_sample(self, observed: pd.DataFrame) -> pd.DataFrame:
+        if self.config.base is not None:
+            end = pd.Timestamp(self.config.base.train_end)
+        else:
+            offset = pd.tseries.frequencies.to_offset(self.config.frequency)
+            end = pd.Timestamp(self.config.shock_start) - offset
+        return observed.loc[:end]
+
+    def _trend_history_for_curve(
+        self,
+        observed: pd.DataFrame,
+        initial_forecast: pd.DataFrame,
+    ) -> pd.DataFrame | None:
+        if self.config.curve.trend_history_start is None:
+            return None
+
+        start = pd.Timestamp(self.config.curve.trend_history_start)
+        end = pd.Timestamp(
+            self.config.curve.trend_history_end or self.config.initial_date
+        )
+        dates = pd.date_range(start, end, freq=self.config.frequency)
+        if dates.empty:
+            return None
+
+        history = observed.reindex(dates).combine_first(
+            initial_forecast.reindex(dates)
+        )
+        if history.dropna(how="all").empty:
+            return None
+
+        from riseforecast.curves import extract_trend_component
+
+        return extract_trend_component(history, self.state.seasonal_multipliers)
 
 
 def _horizon_to_date(

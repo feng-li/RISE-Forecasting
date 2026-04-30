@@ -15,6 +15,7 @@ def test_pipeline_config_from_dict_parses_dataset_config() -> None:
     assert config.reference.x[0].variables == ("search_index",)
     assert config.reference.x[0].method == "growth_rate"
     assert config.curve.curves == ("linear",)
+    assert config.curve.quadratic_terminal_weight == 18.0
 
 
 def test_pipeline_config_from_yaml(tmp_path) -> None:

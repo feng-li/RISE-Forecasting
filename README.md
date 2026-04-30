@@ -200,10 +200,13 @@ terminal forecast = no-shock baseline forecast at terminal date * intervention c
 ```
 
 For the recovery curve stage, the package follows the paper's
-seasonal-trend factorization. The configured base forecast is decomposed with STL on
-the log scale to estimate month-of-year seasonal multipliers. The curve is then fitted
-between de-seasonalized initial and terminal trend anchors and multiplied by the
-seasonal multipliers to recover forecasts on the original scale:
+seasonal-trend factorization. Historical pre-shock observations are decomposed with
+STL on the log scale to estimate month-of-year seasonal multipliers, with the base
+forecast as a fallback when historical seasonality is unavailable. The linear curve
+links the initial and terminal trend anchors. The quadratic curve is fitted to
+de-seasonalized trend history plus a weighted terminal trend point. The logistic curve
+is fitted to critical trend points, including the initial point and configured future
+base-forecast anchors. The full forecasts are recovered on the original scale as:
 
 ```text
 full forecast = recovery curve trend component * seasonal component
@@ -334,7 +337,7 @@ dates:
   forecast_end: "2024-07"
 base:
   train_end: "2019-12"
-  horizon: 55
+  horizon: 60
   models:
     - seasonal_naive
     - random_walk_drift
@@ -360,6 +363,13 @@ reference:
     - name: flight_growth
       variables: [flight_capacity]
       method: growth_rate
+curve:
+  curves: [linear, quadratic, logistic]
+  seasonal_period: 12
+  trend_history_start: "2022-01"
+  trend_history_end: "2023-06"
+  quadratic_terminal_weight: 18
+  logistic_anchor_dates: ["2023-12", "2024-07", "2024-12"]
 ```
 
 `RecoveryForecastingPipeline.from_dataset(dataset)` consumes these settings and

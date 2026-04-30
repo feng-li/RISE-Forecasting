@@ -101,6 +101,7 @@ def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:
         pipeline.state.seasonal_multipliers.loc[6, "series_a"]
         > pipeline.state.seasonal_multipliers.loc[3, "series_a"]
     )
+    assert pipeline.state.trend_history is not None
     assert forecast.values.index[-1] == pd.Timestamp("2025-12-01")
     assert np.isclose(forecast.values.loc["2025-12-01", "series_a"], 110.0)
 
@@ -150,7 +151,12 @@ def seasonal_recovery_dataset() -> RecoveryDataset:
             "terminal_date": "2025-12",
             "forecast_end": "2025-12",
         },
-        "curve": {"curves": ["linear"], "seasonal_period": 12},
+        "curve": {
+            "curves": ["linear"],
+            "seasonal_period": 12,
+            "trend_history_start": "2024-01",
+            "trend_history_end": "2024-01",
+        },
     }
     return RecoveryDataset(
         series=series,

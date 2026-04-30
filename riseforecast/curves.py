@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -111,7 +111,12 @@ def build_recovery_curve(
 
 @dataclass(frozen=True)
 class RecoveryCurveForecast:
-    """Date-indexed recovery curve forecast for multiple entities."""
+    """Date-indexed recovery curve forecast for multiple entities.
+
+    The named recovery curves are estimated on the trend component. The full
+    forecasts in `values` are recovered from `recovery_curve` and
+    `seasonal_components`.
+    """
 
     values: pd.DataFrame
     components: dict[str, pd.DataFrame]
@@ -119,6 +124,13 @@ class RecoveryCurveForecast:
     terminal_date: pd.Timestamp
     initial: pd.Series
     terminal: pd.Series
+    recovery_curve: pd.DataFrame | None = None
+    seasonal_components: pd.DataFrame | None = None
+    trend_values: pd.DataFrame | None = None
+    trend_components: dict[str, pd.DataFrame] = field(default_factory=dict)
+    seasonal_multipliers: pd.DataFrame | None = None
+    initial_trend: pd.Series | None = None
+    terminal_trend: pd.Series | None = None
 
     def to_frame(self) -> pd.DataFrame:
         """Return a tidy long-form recovery forecast table."""
@@ -185,16 +197,37 @@ class RecoveryCurveForecaster:
                 "Forecast dates must be within initial and terminal dates."
             )
 
-        component_frames = self._build_component_frames(
-            initial=initial,
-            terminal=terminal,
-            full_dates=full_dates,
+        multiplier_frame = _seasonal_multiplier_frame(
             seasonal_multipliers=seasonal_multipliers,
+            entities=entities,
+            dates=full_dates,
         )
-        values = sum(component_frames.values()) / len(component_frames)
-        values = values.loc[forecast_dates]
+        initial_trend = initial / multiplier_frame.loc[initial_date]
+        terminal_trend = terminal / multiplier_frame.loc[terminal_date]
+
+        trend_component_frames = self._build_trend_component_frames(
+            initial_trend=initial_trend,
+            terminal_trend=terminal_trend,
+            dates=full_dates,
+        )
+        trend_values = sum(trend_component_frames.values()) / len(
+            trend_component_frames
+        )
+        component_frames = {
+            name: recover_full_forecast(frame, multiplier_frame)
+            for name, frame in trend_component_frames.items()
+        }
+        values = recover_full_forecast(trend_values, multiplier_frame).loc[
+            forecast_dates
+        ]
+        trend_values = trend_values.loc[forecast_dates]
+        seasonal_components = multiplier_frame.loc[forecast_dates]
         components = {
             name: frame.loc[forecast_dates] for name, frame in component_frames.items()
+        }
+        trend_components = {
+            name: frame.loc[forecast_dates]
+            for name, frame in trend_component_frames.items()
         }
         return RecoveryCurveForecast(
             values=values,
@@ -203,29 +236,33 @@ class RecoveryCurveForecaster:
             terminal_date=terminal_date,
             initial=initial,
             terminal=terminal,
+            recovery_curve=trend_values,
+            seasonal_components=seasonal_components,
+            trend_values=trend_values,
+            trend_components=trend_components,
+            seasonal_multipliers=seasonal_components,
+            initial_trend=initial_trend.rename("initial_trend"),
+            terminal_trend=terminal_trend.rename("terminal_trend"),
         )
 
-    def _build_component_frames(
+    def _build_trend_component_frames(
         self,
-        initial: pd.Series,
-        terminal: pd.Series,
-        full_dates: pd.DatetimeIndex,
-        seasonal_multipliers: pd.Series | pd.DataFrame | None,
+        initial_trend: pd.Series,
+        terminal_trend: pd.Series,
+        dates: pd.DatetimeIndex,
     ) -> dict[str, pd.DataFrame]:
         components: dict[str, pd.DataFrame] = {}
         for curve_name in self.curve_names:
             columns = {}
-            for entity in initial.index:
-                path = _build_entity_path(
+            for entity in initial_trend.index:
+                path = _build_entity_trend_path(
                     curve_name=curve_name,
-                    entity=entity,
-                    initial=float(initial.loc[entity]),
-                    terminal=float(terminal.loc[entity]),
-                    dates=full_dates,
-                    seasonal_multipliers=seasonal_multipliers,
+                    initial=float(initial_trend.loc[entity]),
+                    terminal=float(terminal_trend.loc[entity]),
+                    periods=len(dates),
                 )
                 columns[entity] = path
-            components[curve_name] = pd.DataFrame(columns, index=full_dates)
+            components[curve_name] = pd.DataFrame(columns, index=dates)
         if not components:
             raise ValueError("At least one curve name is required.")
         return components
@@ -257,53 +294,95 @@ def recovery_curve_forecast(
     )
 
 
-def _build_entity_path(
+def recover_full_forecast(
+    recovery_curve: pd.DataFrame,
+    seasonal_components: pd.Series | pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Recover full forecasts from a trend recovery curve and seasonality."""
+
+    curve = _prepare_matrix(recovery_curve)
+    components = _coerce_seasonal_components(
+        seasonal_components=seasonal_components,
+        entities=pd.Index(curve.columns),
+        dates=pd.DatetimeIndex(curve.index),
+    )
+    return curve * components
+
+
+def _build_entity_trend_path(
     curve_name: str,
-    entity: object,
     initial: float,
     terminal: float,
-    dates: pd.DatetimeIndex,
-    seasonal_multipliers: pd.Series | pd.DataFrame | None,
+    periods: int,
 ) -> np.ndarray:
-    initial_multiplier = _seasonal_multiplier(
-        seasonal_multipliers,
-        entity=entity,
-        month=int(dates[0].month),
-    )
-    terminal_multiplier = _seasonal_multiplier(
-        seasonal_multipliers,
-        entity=entity,
-        month=int(dates[-1].month),
-    )
-    trend_initial = initial / initial_multiplier
-    trend_terminal = terminal / terminal_multiplier
-    anchors = CurveAnchors(
-        initial=trend_initial,
-        terminal=trend_terminal,
-        periods=len(dates),
-    )
+    anchors = CurveAnchors(initial=initial, terminal=terminal, periods=periods)
 
     if curve_name == "linear":
-        trend_path = linear_curve(anchors)
-    elif curve_name == "quadratic":
-        trend_path = quadratic_curve(anchors)
-    elif curve_name == "logistic":
-        trend_path = logistic_curve(anchors)
-    else:
-        raise ValueError(f"Unknown curve name: {curve_name}")
+        return linear_curve(anchors)
+    if curve_name == "quadratic":
+        return quadratic_curve(anchors)
+    if curve_name == "logistic":
+        return logistic_curve(anchors)
+    raise ValueError(f"Unknown curve name: {curve_name}")
 
-    multipliers = np.array(
-        [
+
+def _seasonal_multiplier_frame(
+    seasonal_multipliers: pd.Series | pd.DataFrame | None,
+    entities: pd.Index,
+    dates: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    if seasonal_multipliers is None:
+        return pd.DataFrame(1.0, index=dates, columns=entities)
+    columns = {}
+    for entity in entities:
+        columns[entity] = [
             _seasonal_multiplier(
                 seasonal_multipliers,
                 entity=entity,
                 month=int(date.month),
             )
             for date in dates
-        ],
-        dtype=float,
-    )
-    return trend_path * multipliers
+        ]
+    return pd.DataFrame(columns, index=dates, dtype=float)
+
+
+def _coerce_seasonal_components(
+    seasonal_components: pd.Series | pd.DataFrame | None,
+    entities: pd.Index,
+    dates: pd.DatetimeIndex,
+) -> pd.DataFrame:
+    if seasonal_components is None:
+        return pd.DataFrame(1.0, index=dates, columns=entities)
+    if isinstance(seasonal_components, pd.Series):
+        return _seasonal_multiplier_frame(seasonal_components, entities, dates)
+
+    frame = seasonal_components.copy()
+    if _is_month_index(frame.index):
+        return _seasonal_multiplier_frame(frame, entities, dates)
+
+    frame.index = pd.to_datetime(frame.index)
+    frame = frame.sort_index().reindex(index=dates, columns=entities)
+    if frame.isna().any().any():
+        raise ValueError(
+            "Seasonal components must cover all recovery curve dates and entities."
+        )
+    return frame.astype(float)
+
+
+def _prepare_matrix(matrix: pd.DataFrame) -> pd.DataFrame:
+    result = matrix.copy()
+    result.index = pd.to_datetime(result.index)
+    return result.sort_index().astype(float)
+
+
+def _is_month_index(index: pd.Index) -> bool:
+    if isinstance(index, pd.DatetimeIndex):
+        return False
+    try:
+        months = pd.Index(index).astype(int)
+    except (TypeError, ValueError):
+        return False
+    return set(months).issubset(set(range(1, 13)))
 
 
 def _coerce_anchor_series(

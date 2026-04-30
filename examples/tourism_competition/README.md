@@ -47,12 +47,18 @@ The migrated terminal stage can also be chained into the recovery curve stage:
 python examples/tourism_competition/recovery_curve_forecast.py
 ```
 
-The full runner uses the configured X-based reference forecasts as the initial
-anchor and the converted legacy baseline as the terminal-stage baseline unless a
-package-native base configuration is added to `config.yaml`.
+The full runner uses the configured package-native base models for the no-shock
+baseline and the configured X-based reference forecasts as the initial anchor. The
+recovery curve stage estimates STL seasonal multipliers from the base forecast, fits
+the recovery path on de-seasonalized trend anchors, and then re-seasonalizes the
+forecast. The returned forecast object keeps the trend recovery curve, seasonal
+components, and recovered full forecast separately.
+Removing the `base:` section from `config.yaml` makes the pipeline fall back to
+the converted legacy baseline artifact.
 
 Migration checks use `utilsforecast` metrics to compare migrated outputs against
-the converted legacy artifacts:
+the converted legacy artifacts by stage: base, reference, terminal, and final
+recovery forecast.
 
 ```bash
 python examples/tourism_competition/evaluate_migration.py

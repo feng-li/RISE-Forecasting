@@ -199,6 +199,19 @@ This applies:
 terminal forecast = no-shock baseline forecast at terminal date * intervention coefficient
 ```
 
+For the recovery curve stage, the package follows the paper's
+seasonal-trend factorization. The configured base forecast is decomposed with STL on
+the log scale to estimate month-of-year seasonal multipliers. The curve is then fitted
+between de-seasonalized initial and terminal trend anchors and multiplied by the
+seasonal multipliers to recover forecasts on the original scale:
+
+```text
+full forecast = recovery curve trend component * seasonal component
+```
+
+The fitted `RecoveryCurveForecast` stores `recovery_curve` / `trend_values`,
+`seasonal_components`, and the recovered original-scale `values`.
+
 To run the current tests:
 
 ```bash
@@ -319,6 +332,17 @@ dates:
   forecast_start: "2023-08"
   terminal_date: "2024-07"
   forecast_end: "2024-07"
+base:
+  train_end: "2019-12"
+  horizon: 55
+  models:
+    - seasonal_naive
+    - random_walk_drift
+    - arima
+    - ets
+    - holt
+    - holt_winters
+  ensemble: mean
 reference:
   start: "2023-01"
   end: "2023-06"
@@ -339,8 +363,9 @@ reference:
 ```
 
 `RecoveryForecastingPipeline.from_dataset(dataset)` consumes these settings and
-runs the implemented stages from the compact dataset. If no package-native base
-model configuration is supplied, the pipeline uses the converted
+runs the implemented stages from the compact dataset. The tourism example now
+uses package-native base models configured under `base:`. If no package-native
+base model configuration is supplied, the pipeline falls back to the converted
 `base_forecast / legacy_ensemble` rows as the terminal-stage baseline.
 
 For the tourism competition, the legacy artifacts map into this structure as:

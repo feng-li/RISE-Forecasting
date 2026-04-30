@@ -19,6 +19,7 @@ from riseforecast.config import PipelineConfig, ReferenceXConfig
 from riseforecast.curves import (
     RecoveryCurveForecast,
     RecoveryCurveForecaster,
+    recover_full_forecast,
     recovery_curve_forecast,
 )
 from riseforecast.data import RecoveryDataset
@@ -34,6 +35,7 @@ from riseforecast.intervention import (
     intervention_terminal_forecast,
 )
 from riseforecast.pipeline import RecoveryForecastingPipeline
+from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
 from riseforecast.reference import (
     ReferenceForecast,
     ReferenceForecaster,
@@ -72,7 +74,9 @@ __all__ = [
     "forecast_series",
     "initial_forecast",
     "intervention_terminal_forecast",
+    "recover_full_forecast",
     "reference_forecast",
     "reference_specs_from_config",
     "recovery_curve_forecast",
+    "stl_monthly_seasonal_multipliers",
 ]

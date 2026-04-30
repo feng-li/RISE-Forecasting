@@ -87,6 +87,76 @@ def test_pipeline_fits_dataset_from_compact_config() -> None:
     assert list(forecast.values.columns) == ["series_a", "series_b"]
     assert np.allclose(forecast.values.loc["2024-05-01"], [75.0, 200.0])
     assert np.allclose(forecast.values.loc["2024-04-01"], [107.5, 220.0])
+    assert pipeline.state.seasonal_multipliers is None
+
+
+def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:
+    dataset = seasonal_recovery_dataset()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    forecast = pipeline.predict()
+
+    assert pipeline.state.seasonal_multipliers is not None
+    assert (
+        pipeline.state.seasonal_multipliers.loc[6, "series_a"]
+        > pipeline.state.seasonal_multipliers.loc[3, "series_a"]
+    )
+    assert forecast.values.index[-1] == pd.Timestamp("2025-12-01")
+    assert np.isclose(forecast.values.loc["2025-12-01", "series_a"], 110.0)
+
+
+def seasonal_recovery_dataset() -> RecoveryDataset:
+    series = pd.DataFrame(
+        {
+            "series_id": ["series_a"],
+            "series_name": ["Series A"],
+            "target_name": ["target"],
+            "unit": ["count"],
+            "coefficient": [1.0],
+        }
+    )
+    observed = pd.DataFrame(
+        {"series_a": [100.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    reference = pd.DataFrame(
+        {"series_a": [100.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    month_factors = np.array(
+        [1.0, 1.2, 0.8, 1.1, 0.9, 1.3, 1.0, 0.95, 1.05, 0.85, 1.15, 1.0]
+    )
+    dates = pd.date_range("2024-01-01", periods=24, freq="MS")
+    base_forecast = pd.DataFrame(
+        {"series_a": 110.0 * np.resize(month_factors, len(dates))},
+        index=dates,
+    )
+
+    rows = []
+    rows.extend(_matrix_rows(observed, kind="observed", name="target"))
+    rows.extend(
+        _matrix_rows(reference, kind="reference_forecast", name="legacy_average")
+    )
+    rows.extend(
+        _matrix_rows(base_forecast, kind="base_forecast", name="legacy_ensemble")
+    )
+    config = {
+        "frequency": "MS",
+        "shock": {"start": "2024-01"},
+        "dates": {
+            "observed_until": "2024-01",
+            "initial_date": "2024-01",
+            "forecast_start": "2024-02",
+            "terminal_date": "2025-12",
+            "forecast_end": "2025-12",
+        },
+        "curve": {"curves": ["linear"], "seasonal_period": 12},
+    }
+    return RecoveryDataset(
+        series=series,
+        panel=pd.DataFrame(rows),
+        config=config,
+    ).validate()
 
 
 def _matrix_rows(

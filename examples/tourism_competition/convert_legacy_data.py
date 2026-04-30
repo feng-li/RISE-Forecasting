@@ -521,6 +521,19 @@ def build_config() -> dict:
             "terminal_date": "2024-07",
             "forecast_end": "2024-07",
         },
+        "base": {
+            "train_end": "2019-12",
+            "horizon": 55,
+            "models": [
+                "seasonal_naive",
+                "random_walk_drift",
+                "arima",
+                "ets",
+                "holt",
+                "holt_winters",
+            ],
+            "ensemble": "mean",
+        },
         "reference": {
             "start": "2023-01",
             "end": "2023-06",

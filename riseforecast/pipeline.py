@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -25,6 +26,7 @@ class PipelineState:
     initial_forecast: InitialForecast | None = None
     reference_forecast: ForecastFrame | None = None
     recovery_coefficients: pd.Series | None = None
+    seasonal_multipliers: pd.DataFrame | None = None
     terminal_forecast: InterventionTerminalForecast | None = None
     recovery_curve_forecast: RecoveryCurveForecast | None = None
 
@@ -143,6 +145,9 @@ class RecoveryForecastingPipeline:
             observed=observed,
             fallback_name=base_forecast_name,
         )
+        self.state.seasonal_multipliers = self._seasonal_multipliers_from_base(
+            self.state.base_forecast.values,
+        )
         self.state.recovery_coefficients = dataset.coefficients()
 
         from riseforecast.intervention import intervention_terminal_forecast
@@ -172,6 +177,7 @@ class RecoveryForecastingPipeline:
         ).forecast(
             initial_forecast=initial_forecast,
             terminal_forecast=self.state.terminal_forecast,
+            seasonal_multipliers=self.state.seasonal_multipliers,
         )
         return self
 
@@ -232,6 +238,28 @@ class RecoveryForecastingPipeline:
         if self.state.initial_forecast is not None:
             return self.state.initial_forecast.values
         return dataset.reference_forecast(name=fallback_name)
+
+    def _seasonal_multipliers_from_base(
+        self,
+        base_forecast: pd.DataFrame,
+    ) -> pd.DataFrame | None:
+        period = self.config.curve.seasonal_period
+        if len(base_forecast.dropna(how="all")) < period * 2:
+            return None
+
+        from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
+
+        try:
+            return stl_monthly_seasonal_multipliers(
+                base_forecast,
+                period=period,
+            )
+        except ValueError as exc:
+            warnings.warn(
+                f"Skipping STL seasonal decomposition of base forecast: {exc}",
+                stacklevel=2,
+            )
+            return None
 
 
 def _horizon_to_date(

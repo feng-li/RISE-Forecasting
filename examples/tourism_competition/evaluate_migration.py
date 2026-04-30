@@ -8,16 +8,11 @@ from pathlib import Path
 import pandas as pd
 
 from riseforecast import (
-    InitialForecaster,
-    RecoveryCurveForecaster,
     RecoveryDataset,
-    ReferenceForecaster,
+    RecoveryForecastingPipeline,
     evaluate_forecast_matrix,
-    intervention_terminal_forecast,
-    reference_specs_from_config,
 )
 
-DEFAULT_INITIAL_MODELS = "seasonal_naive,random_walk_drift,arima,ets"
 DEFAULT_METRICS = "mae,rmse,mape,smape,bias,mase,rmsse"
 
 
@@ -28,7 +23,6 @@ def main() -> None:
         type=Path,
         default=Path("examples/tourism_competition/data"),
     )
-    parser.add_argument("--initial-models", default=DEFAULT_INITIAL_MODELS)
     parser.add_argument("--metrics", default=DEFAULT_METRICS)
     parser.add_argument("--seasonality", type=int, default=12)
     parser.add_argument("--output", type=Path)
@@ -37,9 +31,6 @@ def main() -> None:
     dataset = RecoveryDataset.from_directory(args.data_dir)
     report = evaluate_migration(
         dataset=dataset,
-        initial_models=tuple(
-            model.strip() for model in args.initial_models.split(",") if model.strip()
-        ),
         metrics=tuple(
             metric.strip() for metric in args.metrics.split(",") if metric.strip()
         ),
@@ -55,12 +46,6 @@ def main() -> None:
 
 def evaluate_migration(
     dataset: RecoveryDataset,
-    initial_models: tuple[str, ...] = (
-        "seasonal_naive",
-        "random_walk_drift",
-        "arima",
-        "ets",
-    ),
     metrics: tuple[str, ...] = (
         "mae",
         "rmse",
@@ -72,89 +57,47 @@ def evaluate_migration(
     ),
     seasonality: int = 12,
 ) -> pd.DataFrame:
-    """Build migrated forecasts and compare them with legacy outputs."""
+    """Build the configured package pipeline and compare it with legacy outputs."""
 
-    dates = dataset.config["dates"]
-    frequency = dataset.config.get("frequency", "MS")
-    train_end = dates.get("observed_until")
     observed = dataset.observed_target()
-    observed_train = (
-        observed.loc[: pd.Timestamp(train_end)] if train_end is not None else observed
-    )
+    train_end = _evaluation_train_end(dataset)
+    observed_train = observed.loc[:train_end]
 
-    terminal = intervention_terminal_forecast(
-        dataset.base_forecast(),
-        dataset.coefficients(),
-        terminal_date=dates["terminal_date"],
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    base_forecast = _require_forecast_frame(
+        pipeline.state.base_forecast,
+        stage_name="base",
     )
-    terminal_matrix = pd.DataFrame([terminal.values], index=[terminal.terminal_date])
+    reference_forecast = _require_forecast_frame(
+        pipeline.state.reference_forecast,
+        stage_name="reference",
+    )
+    terminal_forecast = pipeline.state.terminal_forecast
+    if terminal_forecast is None:
+        raise ValueError("Pipeline did not produce a terminal forecast.")
+    recovery_forecast = pipeline.predict().values
 
-    initial = InitialForecaster(
-        initial_date=dates["initial_date"],
-        train_end=train_end,
-        models=initial_models,
-        frequency=frequency,
-    ).forecast(observed)
-    reference = ReferenceForecaster(
-        start=train_end,
-        end=dates["initial_date"],
-        train_end=train_end,
-        specs=reference_specs_from_config(dataset.config),
-        frequency=frequency,
-    ).forecast(observed, dataset.exogenous_variables())
-
-    recovery_from_legacy_reference = RecoveryCurveForecaster(
-        initial_date=dates["initial_date"],
-        forecast_start=dates["forecast_start"],
-        forecast_end=dates["forecast_end"],
-        frequency=frequency,
-    ).forecast(
-        initial_forecast=dataset.reference_forecast(),
-        terminal_forecast=terminal,
-    )
-    recovery_from_base_initial = RecoveryCurveForecaster(
-        initial_date=dates["initial_date"],
-        forecast_start=dates["forecast_start"],
-        forecast_end=dates["forecast_end"],
-        frequency=frequency,
-    ).forecast(
-        initial_forecast=initial.values,
-        terminal_forecast=terminal,
-    )
-    recovery_from_signal_reference = RecoveryCurveForecaster(
-        initial_date=dates["initial_date"],
-        forecast_start=dates["forecast_start"],
-        forecast_end=dates["forecast_end"],
-        frequency=frequency,
-    ).forecast(
-        initial_forecast=reference.values,
-        terminal_forecast=terminal,
+    terminal_matrix = pd.DataFrame(
+        [terminal_forecast.values],
+        index=[terminal_forecast.terminal_date],
     )
 
     checks = {
-        "initial_base_models_vs_legacy_reference": (
-            dataset.reference_forecast(),
-            initial.values,
+        "base_native_vs_legacy_baseline": (
+            dataset.base_forecast(),
+            base_forecast,
         ),
-        "reference_signals_vs_legacy_reference": (
+        "reference_native_vs_legacy_reference": (
             dataset.reference_forecast(),
-            reference.values,
+            reference_forecast,
         ),
-        "terminal_intervention_vs_legacy_terminal": (
+        "terminal_native_vs_legacy_terminal": (
             dataset.matrix("terminal_forecast", "intervention_adjusted"),
             terminal_matrix,
         ),
-        "recovery_curve_legacy_reference_vs_legacy_final": (
+        "recovery_native_vs_legacy_final": (
             dataset.recovery_forecast(),
-            recovery_from_legacy_reference.values,
-        ),
-        "recovery_curve_base_initial_vs_legacy_final": (
-            dataset.recovery_forecast(),
-            recovery_from_base_initial.values,
-        ),
-        "recovery_curve_signal_reference_vs_legacy_final": (
-            dataset.recovery_forecast(),
-            recovery_from_signal_reference.values,
+            recovery_forecast,
         ),
     }
 
@@ -174,6 +117,24 @@ def evaluate_migration(
         :,
         ["check", "level", "unique_id", "metric", "value"],
     ]
+
+
+def _evaluation_train_end(dataset: RecoveryDataset) -> pd.Timestamp:
+    config = dataset.pipeline_config()
+    if config.base is not None:
+        return pd.Timestamp(config.base.train_end)
+    if config.reference is not None and config.reference.train_end is not None:
+        return pd.Timestamp(config.reference.train_end)
+    dates = dataset.config.get("dates", {})
+    if "observed_until" in dates:
+        return pd.Timestamp(dates["observed_until"])
+    return pd.Timestamp(dataset.observed_target().index.max())
+
+
+def _require_forecast_frame(forecast, stage_name: str) -> pd.DataFrame:
+    if forecast is None:
+        raise ValueError(f"Pipeline did not produce a {stage_name} forecast.")
+    return forecast.values
 
 
 if __name__ == "__main__":

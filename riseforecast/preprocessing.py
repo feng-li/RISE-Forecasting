@@ -58,3 +58,67 @@ def apply_monthly_seasonality(
     if multiplicative:
         return trend * np.exp(factors)
     return trend + factors
+
+
+def stl_monthly_seasonal_multipliers(
+    matrix: pd.DataFrame,
+    period: int = 12,
+) -> pd.DataFrame:
+    """Estimate multiplicative month-of-year factors via STL on log series.
+
+    This follows the paper's seasonal-trend factorization: estimate stable seasonal
+    effects with STL on the logarithmic scale, then use exp(seasonal) as the
+    multiplier for de-seasonalizing and re-seasonalizing recovery curves.
+    """
+
+    if period != 12:
+        raise ValueError(
+            "stl_monthly_seasonal_multipliers currently requires period=12."
+        )
+    if not isinstance(matrix.index, pd.DatetimeIndex):
+        raise ValueError("matrix must use a DatetimeIndex.")
+
+    values = matrix.copy()
+    values.index = pd.to_datetime(values.index)
+    values = values.sort_index()
+    if len(values) < period * 2:
+        raise ValueError("At least two full seasonal periods are required.")
+
+    factors = {}
+    for column in values.columns:
+        factors[column] = _stl_monthly_multipliers_for_series(
+            values[column],
+            period=period,
+        )
+    result = pd.DataFrame(factors).reindex(range(1, period + 1))
+    result.index.name = "month"
+    if result.isna().any().any():
+        raise ValueError("STL seasonal decomposition did not cover all months.")
+    return result
+
+
+def _stl_monthly_multipliers_for_series(
+    series: pd.Series,
+    period: int,
+) -> pd.Series:
+    values = series.dropna().astype(float)
+    if len(values) < period * 2:
+        raise ValueError("At least two full seasonal periods are required.")
+    if (values <= 0).any():
+        raise ValueError("Multiplicative STL seasonality requires positive values.")
+
+    from statsmodels.tsa.seasonal import STL
+
+    transformed = np.log(values)
+    decomposition = STL(
+        transformed,
+        period=period,
+        seasonal=_stl_seasonal_window(period),
+    ).fit()
+    seasonal = pd.Series(decomposition.seasonal, index=values.index)
+    return np.exp(seasonal.groupby(seasonal.index.month).mean())
+
+
+def _stl_seasonal_window(period: int) -> int:
+    window = period + 1 if period % 2 == 0 else period + 2
+    return max(window, 7)

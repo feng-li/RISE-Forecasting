@@ -6,6 +6,7 @@ from riseforecast.curves import (
     RecoveryCurveForecaster,
     build_recovery_curve,
     linear_curve,
+    recover_full_forecast,
     recovery_curve_forecast,
 )
 from riseforecast.intervention import intervention_terminal_forecast
@@ -84,3 +85,31 @@ def test_recovery_curve_forecaster_applies_seasonal_multipliers() -> None:
     )
 
     assert np.allclose(result.values["Canada"], [50.0, 80.0])
+    assert result.trend_values is not None
+    assert np.allclose(result.trend_values["Canada"], [25.0, 40.0])
+    assert result.recovery_curve is not None
+    assert np.allclose(result.recovery_curve["Canada"], [25.0, 40.0])
+    assert result.seasonal_components is not None
+    assert np.allclose(result.seasonal_components["Canada"], [2.0, 2.0])
+    assert np.allclose(
+        result.values,
+        recover_full_forecast(result.recovery_curve, result.seasonal_components),
+    )
+    assert np.allclose(result.trend_components["linear"]["Canada"], [25.0, 40.0])
+    assert np.allclose(result.components["linear"]["Canada"], [50.0, 80.0])
+    assert result.initial_trend is not None
+    assert result.terminal_trend is not None
+    assert result.initial_trend.loc["Canada"] == 10.0
+    assert result.terminal_trend.loc["Canada"] == 40.0
+
+
+def test_recover_full_forecast_accepts_monthly_seasonal_components() -> None:
+    recovery_curve = pd.DataFrame(
+        {"Canada": [25.0, 40.0]},
+        index=pd.to_datetime(["2024-02-01", "2024-03-01"]),
+    )
+    seasonal = pd.Series({2: 2.0, 3: 1.5})
+
+    forecast = recover_full_forecast(recovery_curve, seasonal)
+
+    assert np.allclose(forecast["Canada"], [50.0, 60.0])

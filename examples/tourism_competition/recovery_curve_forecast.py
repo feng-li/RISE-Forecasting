@@ -13,6 +13,7 @@ from riseforecast import (
     intervention_terminal_forecast,
     reference_specs_from_config,
 )
+from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
 
 
 def main() -> None:
@@ -46,6 +47,7 @@ def main() -> None:
     terminal_date = args.terminal_date or dates["terminal_date"]
 
     baseline = dataset.base_forecast()
+    seasonal_multipliers = stl_monthly_seasonal_multipliers(baseline)
     if args.initial_source == "legacy_reference":
         reference = dataset.reference_forecast()
     elif args.initial_source == "signal_reference":
@@ -82,6 +84,7 @@ def main() -> None:
     ).forecast(
         initial_forecast=reference,
         terminal_forecast=terminal,
+        seasonal_multipliers=seasonal_multipliers,
     )
 
     if args.output is None:

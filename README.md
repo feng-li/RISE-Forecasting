@@ -100,6 +100,41 @@ reference = dataset.reference_forecast()
 coefficients = dataset.coefficients()
 ```
 
+Base forecasts can now be generated from observed data:
+
+```python
+from riseforecast import forecast_panel
+
+base_forecasts = forecast_panel(
+    observed=dataset.observed_target(),
+    models=("seasonal_naive", "random_walk_drift", "arima", "ets", "holt"),
+    horizon=24,
+    train_end="2019-12",
+)
+
+baseline = base_forecasts["holt"].values
+```
+
+Implemented base model names include:
+
+```text
+seasonal_naive
+random_walk_drift
+arima
+ets
+holt
+holt_winters
+stl_arima
+stl_ets
+tbats
+nnetar
+```
+
+The paper base models now use direct StatsForecast implementations where
+available, including `AutoARIMA`, `AutoETS`, `Holt`, `HoltWinters`,
+`SeasonalNaive`, `RandomWalkWithDrift`, `MSTL`, and `AutoTBATS`. The `nnetar`
+wrapper remains a scikit-learn autoregression approximation.
+
 This applies:
 
 ```text

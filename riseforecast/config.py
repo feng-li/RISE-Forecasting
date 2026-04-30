@@ -20,10 +20,13 @@ class BaseForecastConfig:
     horizon: int = 24
     models: tuple[str, ...] = (
         "seasonal_naive",
+        "random_walk_drift",
         "arima",
         "ets",
         "holt",
         "holt_winters",
+        "stl_arima",
+        "stl_ets",
         "tbats",
         "nnetar",
     )

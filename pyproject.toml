@@ -35,6 +35,7 @@ dependencies = [
   "pandas>=2.0",
   "scikit-learn>=1.3",
   "scipy>=1.10",
+  "statsforecast>=2.0",
   "statsmodels>=0.14",
   "openpyxl>=3.1",
   "PyYAML>=6.0",

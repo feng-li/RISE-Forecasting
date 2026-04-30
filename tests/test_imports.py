@@ -2,6 +2,7 @@ from riseforecast import (
     PipelineConfig,
     RecoveryCurveForecaster,
     RecoveryForecastingPipeline,
+    default_model_registry,
 )
 
 
@@ -20,3 +21,4 @@ def test_package_imports() -> None:
     )
     assert pipeline.config.initial_date == "2023-06"
     assert forecaster.forecast_start == "2023-08"
+    assert "arima" in default_model_registry().names()

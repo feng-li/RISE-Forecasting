@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "riseforecast"
+version = "0.1.0"
+description = "Recovery-informed forecasting tools for post-shock time series."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Feng Li" },
+  { name = "Taozhu Ruan" },
+]
+keywords = [
+  "forecasting",
+  "recovery",
+  "time-series",
+  "tourism",
+  "forecast-combination",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scikit-learn>=1.3",
+  "scipy>=1.10",
+  "statsmodels>=0.14",
+  "openpyxl>=3.1",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+]
+prophet = [
+  "prophet>=1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/feng-li/RISE-Forecasting"
+Repository = "https://github.com/feng-li/RISE-Forecasting"
+
+[tool.setuptools.packages.find]
+include = ["riseforecast*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

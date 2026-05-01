@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from riseforecast.data import ForecastFrame
+from riseforecast.intervals import order_interval_bounds
 from riseforecast.intervention import (
     DateLike,
     InterventionTerminalForecast,
@@ -132,18 +134,28 @@ class RecoveryCurveForecast:
     initial_trend: pd.Series | None = None
     terminal_trend: pd.Series | None = None
     trend_history: pd.DataFrame | None = None
+    lower: pd.DataFrame | None = None
+    upper: pd.DataFrame | None = None
+    lower_recovery_curve: pd.DataFrame | None = None
+    upper_recovery_curve: pd.DataFrame | None = None
 
     def to_frame(self) -> pd.DataFrame:
         """Return a tidy long-form recovery forecast table."""
 
-        frame = self.values.copy()
-        frame.index.name = "date"
-        return (
-            frame.reset_index()
-            .melt(id_vars="date", var_name="entity", value_name="forecast")
-            .sort_values(["entity", "date"])
-            .reset_index(drop=True)
-        )
+        result = _melt_forecast_matrix(self.values, value_name="forecast")
+        if self.lower is not None:
+            result = result.merge(
+                _melt_forecast_matrix(self.lower, value_name="lower"),
+                on=["date", "entity"],
+                how="left",
+            )
+        if self.upper is not None:
+            result = result.merge(
+                _melt_forecast_matrix(self.upper, value_name="upper"),
+                on=["date", "entity"],
+                how="left",
+            )
+        return result.sort_values(["entity", "date"]).reset_index(drop=True)
 
 
 @dataclass(frozen=True)
@@ -160,7 +172,7 @@ class RecoveryCurveForecaster:
 
     def forecast(
         self,
-        initial_forecast: pd.Series | pd.DataFrame,
+        initial_forecast: ForecastFrame | pd.Series | pd.DataFrame,
         terminal_forecast: InterventionTerminalForecast | pd.Series,
         seasonal_multipliers: pd.Series | pd.DataFrame | None = None,
         trend_history: pd.DataFrame | None = None,
@@ -175,10 +187,14 @@ class RecoveryCurveForecaster:
 
         initial_date = pd.Timestamp(self.initial_date)
         initial = _coerce_anchor_series(initial_forecast, initial_date)
+        initial_lower = _coerce_anchor_bound(initial_forecast, initial_date, "lower")
+        initial_upper = _coerce_anchor_bound(initial_forecast, initial_date, "upper")
         terminal, terminal_date = _coerce_terminal_series(
             terminal_forecast,
             forecast_end=self.forecast_end,
         )
+        terminal_lower = _coerce_terminal_bound(terminal_forecast, "lower")
+        terminal_upper = _coerce_terminal_bound(terminal_forecast, "upper")
         forecast_end = (
             pd.Timestamp(self.forecast_end)
             if self.forecast_end is not None
@@ -190,6 +206,15 @@ class RecoveryCurveForecaster:
         entities = _shared_entities(initial, terminal)
         initial = initial.loc[entities].astype(float)
         terminal = terminal.loc[entities].astype(float)
+        interval_anchors = _coerce_interval_anchors(
+            initial=initial,
+            terminal=terminal,
+            initial_lower=initial_lower,
+            initial_upper=initial_upper,
+            terminal_lower=terminal_lower,
+            terminal_upper=terminal_upper,
+            entities=entities,
+        )
 
         full_dates = pd.date_range(initial_date, terminal_date, freq=self.frequency)
         forecast_dates = pd.date_range(
@@ -245,6 +270,54 @@ class RecoveryCurveForecaster:
             name: frame.loc[forecast_dates]
             for name, frame in trend_component_frames.items()
         }
+
+        lower = None
+        upper = None
+        lower_recovery_curve = None
+        upper_recovery_curve = None
+        if interval_anchors is not None:
+            lower_initial, upper_initial, lower_terminal, upper_terminal = (
+                interval_anchors
+            )
+            lower_trend_components = self._build_trend_component_frames(
+                initial_trend=lower_initial / multiplier_frame.loc[initial_date],
+                terminal_trend=lower_terminal / multiplier_frame.loc[terminal_date],
+                dates=full_dates,
+                trend_history=trend_history,
+                base_trend_forecast=base_trend_forecast,
+            )
+            upper_trend_components = self._build_trend_component_frames(
+                initial_trend=upper_initial / multiplier_frame.loc[initial_date],
+                terminal_trend=upper_terminal / multiplier_frame.loc[terminal_date],
+                dates=full_dates,
+                trend_history=trend_history,
+                base_trend_forecast=base_trend_forecast,
+            )
+            lower_recovery_curve = (
+                sum(lower_trend_components.values()) / len(lower_trend_components)
+            ).loc[forecast_dates]
+            upper_recovery_curve = (
+                sum(upper_trend_components.values()) / len(upper_trend_components)
+            ).loc[forecast_dates]
+            lower_recovery_curve, upper_recovery_curve = order_interval_bounds(
+                lower_recovery_curve,
+                upper_recovery_curve,
+                values=trend_values,
+            )
+            lower_full = recover_full_forecast(
+                lower_recovery_curve,
+                seasonal_components,
+            )
+            upper_full = recover_full_forecast(
+                upper_recovery_curve,
+                seasonal_components,
+            )
+            lower, upper = order_interval_bounds(
+                lower_full,
+                upper_full,
+                values=values,
+            )
+
         return RecoveryCurveForecast(
             values=values,
             components=components,
@@ -260,6 +333,10 @@ class RecoveryCurveForecaster:
             initial_trend=initial_trend.rename("initial_trend"),
             terminal_trend=terminal_trend.rename("terminal_trend"),
             trend_history=trend_history,
+            lower=lower,
+            upper=upper,
+            lower_recovery_curve=lower_recovery_curve,
+            upper_recovery_curve=upper_recovery_curve,
         )
 
     def _build_trend_component_frames(
@@ -300,7 +377,7 @@ class RecoveryCurveForecaster:
 
 
 def recovery_curve_forecast(
-    initial_forecast: pd.Series | pd.DataFrame,
+    initial_forecast: ForecastFrame | pd.Series | pd.DataFrame,
     terminal_forecast: InterventionTerminalForecast | pd.Series,
     initial_date: DateLike,
     forecast_start: DateLike,
@@ -593,12 +670,27 @@ def _month_distance(origin: pd.Timestamp, date: pd.Timestamp) -> int:
 
 
 def _coerce_anchor_series(
-    forecast: pd.Series | pd.DataFrame,
+    forecast: ForecastFrame | pd.Series | pd.DataFrame,
     date: pd.Timestamp,
 ) -> pd.Series:
+    if isinstance(forecast, ForecastFrame):
+        forecast = forecast.values
     if isinstance(forecast, pd.Series):
         return forecast.astype(float)
     return select_forecast_date(forecast, date)
+
+
+def _coerce_anchor_bound(
+    forecast: ForecastFrame | pd.Series | pd.DataFrame,
+    date: pd.Timestamp,
+    bound_name: str,
+) -> pd.Series | None:
+    if not isinstance(forecast, ForecastFrame):
+        return None
+    bound = getattr(forecast, bound_name)
+    if bound is None:
+        return None
+    return select_forecast_date(bound, date)
 
 
 def _coerce_terminal_series(
@@ -608,8 +700,107 @@ def _coerce_terminal_series(
     if isinstance(terminal_forecast, InterventionTerminalForecast):
         return terminal_forecast.values.astype(float), terminal_forecast.terminal_date
     if forecast_end is None:
-        raise ValueError("forecast_end is required when terminal_forecast is a Series.")
+        raise ValueError(
+            "forecast_end is required when terminal_forecast is a Series."
+        )
     return terminal_forecast.astype(float), pd.Timestamp(forecast_end)
+
+
+def _coerce_terminal_bound(
+    terminal_forecast: InterventionTerminalForecast | pd.Series,
+    bound_name: str,
+) -> pd.Series | None:
+    if not isinstance(terminal_forecast, InterventionTerminalForecast):
+        return None
+    bound = getattr(terminal_forecast, bound_name)
+    if bound is None:
+        return None
+    return bound.astype(float)
+
+
+def _coerce_interval_anchors(
+    initial: pd.Series,
+    terminal: pd.Series,
+    initial_lower: pd.Series | None,
+    initial_upper: pd.Series | None,
+    terminal_lower: pd.Series | None,
+    terminal_upper: pd.Series | None,
+    entities: pd.Index,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series] | None:
+    if all(
+        bound is None
+        for bound in (initial_lower, initial_upper, terminal_lower, terminal_upper)
+    ):
+        return None
+
+    lower_initial = _align_bound_or_point(
+        initial_lower,
+        fallback=initial,
+        entities=entities,
+        label="initial lower",
+    )
+    upper_initial = _align_bound_or_point(
+        initial_upper,
+        fallback=initial,
+        entities=entities,
+        label="initial upper",
+    )
+    lower_terminal = _align_bound_or_point(
+        terminal_lower,
+        fallback=terminal,
+        entities=entities,
+        label="terminal lower",
+    )
+    upper_terminal = _align_bound_or_point(
+        terminal_upper,
+        fallback=terminal,
+        entities=entities,
+        label="terminal upper",
+    )
+    lower_initial, upper_initial = _order_interval_series(
+        lower_initial,
+        upper_initial,
+        values=initial,
+    )
+    lower_terminal, upper_terminal = _order_interval_series(
+        lower_terminal,
+        upper_terminal,
+        values=terminal,
+    )
+    return lower_initial, upper_initial, lower_terminal, upper_terminal
+
+
+def _align_bound_or_point(
+    bound: pd.Series | None,
+    fallback: pd.Series,
+    entities: pd.Index,
+    label: str,
+) -> pd.Series:
+    if bound is None:
+        return fallback.loc[entities].astype(float)
+    missing = [entity for entity in entities if entity not in bound.index]
+    if missing:
+        joined = ", ".join(str(entity) for entity in missing)
+        raise ValueError(f"Missing {label} interval bounds for entities: {joined}")
+    return bound.loc[entities].astype(float)
+
+
+def _order_interval_series(
+    lower: pd.Series,
+    upper: pd.Series,
+    values: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    frame = pd.concat(
+        [
+            lower.rename("lower"),
+            upper.rename("upper"),
+            values.rename("value"),
+        ],
+        axis=1,
+    )
+    ordered_lower = frame.min(axis=1).rename(lower.name)
+    ordered_upper = frame.max(axis=1).rename(upper.name)
+    return ordered_lower, ordered_upper
 
 
 def _shared_entities(initial: pd.Series, terminal: pd.Series) -> pd.Index:
@@ -651,3 +842,13 @@ def _seasonal_multiplier(
     if multiplier == 0:
         raise ValueError("Seasonal multipliers cannot contain zero values.")
     return multiplier
+
+
+def _melt_forecast_matrix(matrix: pd.DataFrame, value_name: str) -> pd.DataFrame:
+    frame = matrix.copy()
+    frame.index.name = "date"
+    return frame.reset_index().melt(
+        id_vars="date",
+        var_name="entity",
+        value_name=value_name,
+    )

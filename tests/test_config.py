@@ -33,6 +33,9 @@ def test_pipeline_config_from_dict_parses_dataset_config() -> None:
     assert config.recovery.anchors == {"series_a": 0.5, "series_b": 1.0}
     assert config.curve.curves == ("linear",)
     assert config.curve.quadratic_terminal_weight == 18.0
+    assert config.interval.enabled is True
+    assert config.interval.alpha == 0.1
+    assert config.interval.method == "residual_quantile"
 
 
 def test_pipeline_config_from_yaml(tmp_path) -> None:
@@ -104,6 +107,7 @@ def compact_config() -> dict[str, object]:
             "apply_to": ["recovery"],
         },
         "curve": {"curves": ["linear"]},
+        "interval": {"enabled": True, "alpha": 0.1},
     }
 
 

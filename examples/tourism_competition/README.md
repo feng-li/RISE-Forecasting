@@ -88,6 +88,22 @@ recovery forecast.
 python examples/tourism_competition/evaluate_migration.py
 ```
 
+For a direct reproduction audit against the original `legacypapercode/` Excel and
+CSV artifacts, run:
+
+```bash
+python examples/tourism_competition/validate_reproduction.py
+```
+
+This writes `examples/tourism_competition/reproduction_validation.csv` and prints
+an overall stage summary. The `converted_vs_legacy` rows should pass up to small
+floating point differences; `package_vs_legacy` rows quantify where the
+generalized package implementation differs from the original paper scripts.
+These differences are expected unless the package is configured to consume the
+same legacy stage artifacts. The Python implementation uses standard package
+APIs and current dependency behavior, so it can produce slightly different
+results from the original R/notebook workflow even for closely related models.
+
 The legacy artifacts can be converted to the compact recovery forecasting data
 format:
 

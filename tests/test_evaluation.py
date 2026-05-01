@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
 
-from riseforecast.evaluation import evaluate_forecast_matrix, forecast_matrix_to_long
+from riseforecast.evaluation import (
+    evaluate_forecast_matrix,
+    evaluate_interval_matrix,
+    forecast_matrix_to_long,
+)
 
 
 def test_forecast_matrix_to_long_aligns_forecast_and_actual() -> None:
@@ -43,3 +47,21 @@ def test_evaluate_forecast_matrix_uses_utilsforecast_metrics() -> None:
     overall = report.loc[report["level"] == "overall"].set_index("metric")
     assert np.isclose(overall.loc["mae", "value"], 1.5)
     assert np.isclose(overall.loc["mase", "value"], 0.75)
+
+
+def test_evaluate_interval_matrix_reports_winkler_and_coverage() -> None:
+    index = pd.date_range("2024-03-01", periods=2, freq="MS")
+    actual = pd.DataFrame({"a": [10.0, 20.0]}, index=index)
+    lower = pd.DataFrame({"a": [8.0, 18.0]}, index=index)
+    upper = pd.DataFrame({"a": [12.0, 19.0]}, index=index)
+
+    report = evaluate_interval_matrix(
+        actual=actual,
+        lower=lower,
+        upper=upper,
+        alpha=0.2,
+    )
+
+    overall = report.loc[report["level"] == "overall"].set_index("metric")
+    assert np.isclose(overall.loc["coverage", "value"], 0.5)
+    assert np.isclose(overall.loc["winkler", "value"], 7.5)

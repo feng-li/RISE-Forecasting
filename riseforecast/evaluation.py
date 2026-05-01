@@ -9,6 +9,8 @@ import pandas as pd
 from utilsforecast.evaluation import evaluate
 from utilsforecast.losses import bias, mae, mape, mase, mse, rmse, rmsse, smape
 
+from riseforecast.metrics import interval_coverage, winkler_score
+
 DEFAULT_METRIC_NAMES = ("mae", "mse", "rmse", "mape", "smape", "bias", "mase", "rmsse")
 
 
@@ -54,6 +56,74 @@ def evaluate_forecast_matrix(
         :,
         ["level", "unique_id", "metric", "value"],
     ]
+
+
+def evaluate_interval_matrix(
+    actual: pd.DataFrame,
+    lower: pd.DataFrame,
+    upper: pd.DataFrame,
+    alpha: float = 0.2,
+    include_overall: bool = True,
+) -> pd.DataFrame:
+    """Evaluate interval forecasts with Winkler score and empirical coverage."""
+
+    actual_aligned, lower_aligned = _align_matrices(actual, lower)
+    actual_aligned, upper_aligned = _align_matrices(actual_aligned, upper)
+    lower_aligned = lower_aligned.reindex_like(actual_aligned)
+    rows = []
+    for series_id in actual_aligned.columns:
+        rows.append(
+            {
+                "level": "series",
+                "unique_id": series_id,
+                "metric": "winkler",
+                "value": winkler_score(
+                    actual_aligned[series_id],
+                    lower_aligned[series_id],
+                    upper_aligned[series_id],
+                    alpha=alpha,
+                ),
+            }
+        )
+        rows.append(
+            {
+                "level": "series",
+                "unique_id": series_id,
+                "metric": "coverage",
+                "value": interval_coverage(
+                    actual_aligned[series_id],
+                    lower_aligned[series_id],
+                    upper_aligned[series_id],
+                ),
+            }
+        )
+    if include_overall:
+        rows.append(
+            {
+                "level": "overall",
+                "unique_id": "__overall__",
+                "metric": "winkler",
+                "value": winkler_score(
+                    actual_aligned,
+                    lower_aligned,
+                    upper_aligned,
+                    alpha=alpha,
+                ),
+            }
+        )
+        rows.append(
+            {
+                "level": "overall",
+                "unique_id": "__overall__",
+                "metric": "coverage",
+                "value": interval_coverage(
+                    actual_aligned,
+                    lower_aligned,
+                    upper_aligned,
+                ),
+            }
+        )
+    return pd.DataFrame(rows, columns=["level", "unique_id", "metric", "value"])
 
 
 def forecast_matrix_to_long(

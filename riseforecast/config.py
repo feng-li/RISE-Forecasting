@@ -14,6 +14,7 @@ ValidationMetricName = Literal["mae", "rmse", "mape", "smape"]
 ReferenceMethodName = Literal["ratio", "growth_rate", "arimax", "prophet"]
 RatioStatisticName = Literal["mean", "median"]
 RecoveryCoefficientMethodName = Literal["direct", "weighted_score", "regression"]
+IntervalMethodName = Literal["residual_quantile"]
 HierarchyMethodName = Literal[
     "bottom_up",
     "top_down",
@@ -135,6 +136,21 @@ class CurveConfig:
 
 
 @dataclass(frozen=True)
+class IntervalConfig:
+    """Configuration for prediction interval construction."""
+
+    enabled: bool = True
+    alpha: float = 0.2
+    method: IntervalMethodName = "residual_quantile"
+
+    def __post_init__(self) -> None:
+        if not 0 < self.alpha < 1:
+            raise ValueError("interval.alpha must be between 0 and 1.")
+        if self.method != "residual_quantile":
+            raise ValueError("interval.method must be 'residual_quantile'.")
+
+
+@dataclass(frozen=True)
 class HierarchyConfig:
     """Configuration for optional hierarchy reconciliation."""
 
@@ -161,6 +177,7 @@ class PipelineConfig:
         default_factory=RecoveryCoefficientConfig
     )
     curve: CurveConfig = field(default_factory=CurveConfig)
+    interval: IntervalConfig = field(default_factory=IntervalConfig)
     hierarchy: HierarchyConfig = field(default_factory=HierarchyConfig)
 
     @classmethod
@@ -194,6 +211,7 @@ class PipelineConfig:
             ),
             recovery=_parse_recovery(data.get("recovery")),
             curve=_parse_curve(data.get("curve")),
+            interval=_parse_interval(data.get("interval")),
             hierarchy=_parse_hierarchy(data.get("hierarchy")),
         )
 
@@ -318,6 +336,16 @@ def _parse_curve(data: Any) -> CurveConfig:
         trend_history_end=_optional_str(data.get("trend_history_end")),
         quadratic_terminal_weight=float(data.get("quadratic_terminal_weight", 18.0)),
         logistic_anchor_dates=tuple(data.get("logistic_anchor_dates", ())),
+    )
+
+
+def _parse_interval(data: Any) -> IntervalConfig:
+    if data is None:
+        return IntervalConfig()
+    return IntervalConfig(
+        enabled=bool(data.get("enabled", True)),
+        alpha=float(data.get("alpha", 0.2)),
+        method=data.get("method", "residual_quantile"),
     )
 
 

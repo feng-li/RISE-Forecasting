@@ -18,7 +18,7 @@ from riseforecast.base_models import (
     is_hierarchical_base_model,
     parse_hierarchical_base_model,
 )
-from riseforecast.config import PipelineConfig, ReferenceXConfig
+from riseforecast.config import IntervalConfig, PipelineConfig, ReferenceXConfig
 from riseforecast.curves import (
     RecoveryCurveForecast,
     RecoveryCurveForecaster,
@@ -26,7 +26,7 @@ from riseforecast.curves import (
     recover_full_forecast,
     recovery_curve_forecast,
 )
-from riseforecast.data import RecoveryDataset
+from riseforecast.data import ForecastFrame, RecoveryDataset
 from riseforecast.ensembles import (
     combine_panel_forecasts,
     error_weighted_average,
@@ -35,7 +35,7 @@ from riseforecast.ensembles import (
     select_top_models,
     simple_average,
 )
-from riseforecast.evaluation import evaluate_forecast_matrix
+from riseforecast.evaluation import evaluate_forecast_matrix, evaluate_interval_matrix
 from riseforecast.hierarchy import (
     HierarchySpec,
     ReconciliationResult,
@@ -57,6 +57,7 @@ from riseforecast.intervention import (
     InterventionTerminalForecaster,
     intervention_terminal_forecast,
 )
+from riseforecast.metrics import interval_coverage, winkler_score
 from riseforecast.pipeline import RecoveryForecastingPipeline
 from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
 from riseforecast.recovery import (
@@ -90,6 +91,7 @@ __all__ = [
     "BaseForecaster",
     "InitialForecast",
     "InitialForecaster",
+    "IntervalConfig",
     "InterventionTerminalForecast",
     "InterventionTerminalForecaster",
     "HierarchySpec",
@@ -117,8 +119,10 @@ __all__ = [
     "direct_recovery_coefficients",
     "error_weighted_average",
     "evaluate_forecast_matrix",
+    "evaluate_interval_matrix",
     "extract_trend_component",
     "FactorCoefficientRegression",
+    "ForecastFrame",
     "forecast_errors",
     "forecast_hierarchical_panel",
     "forecast_panel",
@@ -127,6 +131,7 @@ __all__ = [
     "hierarchy_from_series",
     "initial_forecast",
     "intervention_terminal_forecast",
+    "interval_coverage",
     "is_hierarchical_base_model",
     "parse_hierarchical_base_model",
     "positive_stacking_panel",
@@ -144,4 +149,5 @@ __all__ = [
     "stl_monthly_seasonal_multipliers",
     "weighted_factor_matrix",
     "weighted_recovery_score",
+    "winkler_score",
 ]

@@ -180,13 +180,13 @@ class RecoveryForecastingPipeline:
             dataset=dataset,
             fallback_name=reference_forecast_name,
         )
-        initial_forecast = _bottom_level_matrix(
+        initial_forecast = _bottom_level_forecast_frame(
             initial_forecast,
             self.state.hierarchy,
         )
         self.state.trend_history = self._trend_history_for_curve(
             observed=model_observed,
-            initial_forecast=initial_forecast,
+            initial_forecast=initial_forecast.values,
         )
         from riseforecast.curves import RecoveryCurveForecaster
 
@@ -217,7 +217,11 @@ class RecoveryForecastingPipeline:
             )
         from riseforecast.data import ForecastFrame
 
-        return ForecastFrame(values=self.state.recovery_curve_forecast.values)
+        return ForecastFrame(
+            values=self.state.recovery_curve_forecast.values,
+            lower=self.state.recovery_curve_forecast.lower,
+            upper=self.state.recovery_curve_forecast.upper,
+        )
 
     def _fit_base_forecast(
         self,
@@ -325,7 +329,36 @@ class RecoveryForecastingPipeline:
             validation_actual=validation_actual,
             stacking_alpha=self.config.base.stacking_alpha,
         )
-        return ForecastFrame(values=values)
+        lower = None
+        upper = None
+        if (
+            self.config.interval.enabled
+            and validation_forecasts is not None
+            and validation_actual is not None
+        ):
+            try:
+                validation_values = combine_panel_forecasts(
+                    future_forecasts=validation_forecasts,
+                    ensemble=self.config.base.ensemble,
+                    validation_errors=validation_errors,
+                    validation_forecasts=validation_forecasts,
+                    validation_actual=validation_actual,
+                    stacking_alpha=self.config.base.stacking_alpha,
+                )
+                from riseforecast.intervals import residual_quantile_bounds
+
+                lower, upper = residual_quantile_bounds(
+                    actual=validation_actual,
+                    validation_forecast=validation_values,
+                    future_forecast=values,
+                    alpha=self.config.interval.alpha,
+                )
+            except ValueError as exc:
+                warnings.warn(
+                    f"Skipping residual-calibrated base intervals: {exc}",
+                    stacklevel=2,
+                )
+        return ForecastFrame(values=values, lower=lower, upper=upper)
 
     def _dataset_hierarchy(self, dataset: RecoveryDataset) -> HierarchySpec | None:
         if not self.config.hierarchy.enabled:
@@ -353,10 +386,34 @@ class RecoveryForecastingPipeline:
             hierarchy=self.state.hierarchy,
             method=self.config.hierarchy.method,
         )
+        lower = self.state.recovery_curve_forecast.lower
+        upper = self.state.recovery_curve_forecast.upper
+        if lower is not None:
+            lower = reconcile_forecasts(
+                lower,
+                hierarchy=self.state.hierarchy,
+                method=self.config.hierarchy.method,
+            ).values
+        if upper is not None:
+            upper = reconcile_forecasts(
+                upper,
+                hierarchy=self.state.hierarchy,
+                method=self.config.hierarchy.method,
+            ).values
+        if lower is not None and upper is not None:
+            from riseforecast.intervals import order_interval_bounds
+
+            lower, upper = order_interval_bounds(
+                lower,
+                upper,
+                values=result.values,
+            )
         self.state.hierarchy_reconciliation = result
         self.state.recovery_curve_forecast = replace(
             self.state.recovery_curve_forecast,
             values=result.values,
+            lower=lower,
+            upper=upper,
         )
 
     def _has_base_validation_period(self) -> bool:
@@ -381,12 +438,20 @@ class RecoveryForecastingPipeline:
         self,
         dataset: RecoveryDataset,
         fallback_name: str,
-    ) -> pd.DataFrame:
+    ) -> ForecastFrame:
+        from riseforecast.data import ForecastFrame
+
         if self.state.reference_forecast is not None:
-            return self.state.reference_forecast.values
+            return self.state.reference_forecast
         if self.state.initial_forecast is not None:
-            return self.state.initial_forecast.values
-        return dataset.reference_forecast(name=fallback_name)
+            return self.state.initial_forecast.as_forecast_frame()
+        try:
+            return dataset.forecast_frame(
+                kind="reference_forecast",
+                name=fallback_name,
+            )
+        except ValueError:
+            return ForecastFrame(values=dataset.reference_forecast(name=fallback_name))
 
     def _seasonal_multipliers(
         self,

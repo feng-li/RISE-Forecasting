@@ -248,6 +248,38 @@ def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:
     assert np.isclose(forecast.values.loc["2025-12-01", "series_a"], 110.0)
 
 
+def test_pipeline_propagates_dataset_forecast_intervals() -> None:
+    dataset = interval_recovery_dataset()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    forecast = pipeline.predict()
+
+    assert pipeline.state.base_forecast is not None
+    assert pipeline.state.base_forecast.lower is not None
+    assert pipeline.state.terminal_forecast is not None
+    assert pipeline.state.terminal_forecast.lower is not None
+    assert forecast.lower is not None
+    assert forecast.upper is not None
+    assert np.allclose(forecast.values["series_a"], [110.0, 120.0])
+    assert np.allclose(forecast.lower["series_a"], [102.5, 105.0])
+    assert np.allclose(forecast.upper["series_a"], [125.0, 150.0])
+
+
+def test_pipeline_calibrates_base_intervals_from_validation_residuals() -> None:
+    dataset = residual_interval_dataset()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    forecast = pipeline.predict()
+
+    assert pipeline.state.base_forecast is not None
+    assert pipeline.state.base_forecast.lower is not None
+    assert pipeline.state.base_forecast.upper is not None
+    assert forecast.lower is not None
+    assert forecast.upper is not None
+    assert (forecast.lower <= forecast.values).all().all()
+    assert (forecast.upper >= forecast.values).all().all()
+
+
 def seasonal_recovery_dataset() -> RecoveryDataset:
     series = pd.DataFrame(
         {
@@ -303,6 +335,86 @@ def seasonal_recovery_dataset() -> RecoveryDataset:
     return RecoveryDataset(
         series=series,
         panel=pd.DataFrame(rows),
+        config=config,
+    ).validate()
+
+
+def interval_recovery_dataset() -> RecoveryDataset:
+    series = pd.DataFrame(
+        {
+            "series_id": ["series_a"],
+            "series_name": ["Series A"],
+            "target_name": ["target"],
+            "unit": ["count"],
+            "coefficient": [0.5],
+        }
+    )
+    observed = pd.DataFrame(
+        {"series_a": [90.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    reference = pd.DataFrame(
+        {"series_a": [100.0]},
+        index=pd.to_datetime(["2024-03-01"]),
+    )
+    base_forecast = pd.DataFrame(
+        {"series_a": [220.0, 240.0]},
+        index=pd.date_range("2024-04-01", periods=2, freq="MS"),
+    )
+    base_lower = pd.DataFrame(
+        {"series_a": [200.0, 210.0]},
+        index=base_forecast.index,
+    )
+    base_upper = pd.DataFrame(
+        {"series_a": [260.0, 300.0]},
+        index=base_forecast.index,
+    )
+
+    rows = []
+    rows.extend(_matrix_rows(observed, kind="observed", name="target"))
+    rows.extend(
+        _matrix_rows(reference, kind="reference_forecast", name="legacy_average")
+    )
+    rows.extend(
+        _matrix_rows(
+            base_forecast,
+            kind="base_forecast",
+            name="legacy_ensemble",
+            lower=base_lower,
+            upper=base_upper,
+        )
+    )
+    config = {
+        "frequency": "MS",
+        "shock": {"start": "2024-01"},
+        "dates": {
+            "observed_until": "2024-01",
+            "initial_date": "2024-03",
+            "forecast_start": "2024-04",
+            "terminal_date": "2024-05",
+            "forecast_end": "2024-05",
+        },
+        "curve": {"curves": ["linear"]},
+    }
+    return RecoveryDataset(
+        series=series,
+        panel=pd.DataFrame(rows),
+        config=config,
+    ).validate()
+
+
+def residual_interval_dataset() -> RecoveryDataset:
+    dataset = base_ensemble_dataset(
+        ensemble="mean",
+        selection_fraction=1.0,
+    )
+    config = {
+        **dataset.config,
+        "interval": {"enabled": True, "alpha": 0.2},
+    }
+    return RecoveryDataset(
+        series=dataset.series,
+        panel=dataset.panel,
         config=config,
     ).validate()
 
@@ -431,6 +543,8 @@ def _matrix_rows(
     matrix: pd.DataFrame,
     kind: str,
     name: str,
+    lower: pd.DataFrame | None = None,
+    upper: pd.DataFrame | None = None,
 ) -> list[dict[str, object]]:
     rows = []
     for date, values in matrix.iterrows():
@@ -442,8 +556,12 @@ def _matrix_rows(
                     "kind": kind,
                     "name": name,
                     "value": value,
-                    "lower": np.nan,
-                    "upper": np.nan,
+                    "lower": (
+                        np.nan if lower is None else lower.loc[date, series_id]
+                    ),
+                    "upper": (
+                        np.nan if upper is None else upper.loc[date, series_id]
+                    ),
                 }
             )
     return rows

@@ -27,6 +27,16 @@ Use the **legacy implementation** if you want to check, reproduce, or compare
 against the implementation used for the paper. The Python package is the ongoing
 migration toward a standard, reusable recovery forecasting library.
 
+Because the migration replaces parts of the original R/notebook workflow with
+standard Python package APIs, package-native forecasts can differ from the legacy
+paper outputs. Small numerical differences can come from library implementations,
+optimizer behavior, missing-value handling, date alignment, and floating point
+rounding. Larger differences are also expected where the Python package uses
+generalized model choices instead of the paper's tourism-specific scripts. Use
+`legacypapercode/` as the source of truth for exact paper reproduction, and use
+`examples/tourism_competition/validate_reproduction.py` to quantify stage-by-stage
+differences.
+
 ## Methodology
 
 RISE decomposes a post-shock recovery forecast into three components:
@@ -275,14 +285,24 @@ fig = plot_forecast(
     forecast,
     observed=dataset.observed_target(),
     entities=("canada", "mexico"),
+    show_interval=True,
+    interval_level=0.8,
 )
 
 curve_fig = plot_recovery_curve(
     pipeline.state.recovery_curve_forecast,
     observed=dataset.observed_target(),
     entities=("canada",),
+    show_interval=True,
+    interval_level=1 - pipeline.config.interval.alpha,
 )
 ```
+
+When a `ForecastFrame` or `RecoveryCurveForecast` has `lower` and `upper`
+matrices, the helpers draw a shaded interval band around the point forecast.
+Use `show_interval=False` to hide it or `interval_opacity=` to adjust the band.
+Use `interval_level=0.8` for an `80% interval` legend label, or
+`interval_label="95% PI"` when the level comes from external forecast bounds.
 
 Plotly is an optional dependency; install it with `pip install -e .[plot]` when
 using these helpers.
@@ -482,6 +502,10 @@ curve:
   trend_history_end: "2023-06"
   quadratic_terminal_weight: 18
   logistic_anchor_dates: ["2023-12", "2024-07", "2024-12"]
+interval:
+  enabled: true
+  alpha: 0.2
+  method: residual_quantile
 hierarchy:
   enabled: false
   method: bottom_up
@@ -495,11 +519,26 @@ uses package-native base models configured under `base:`. If no package-native
 base model configuration is supplied, the pipeline falls back to the converted
 `base_forecast / legacy_ensemble` rows as the terminal-stage baseline.
 
+The package-native path is not intended to be numerically identical to every
+legacy paper artifact by default. It uses Python implementations of the general
+RISE stages, so outputs may differ slightly from the original R scripts and
+notebooks even when the same conceptual model is used. Direct equality should be
+expected only for converted legacy artifacts or for a pipeline configuration that
+explicitly consumes those artifacts as inputs.
+
 The `recovery:` block controls the terminal intervention coefficient. Use
 `method: direct` to consume a coefficient column as-is, `method: weighted_score`
 to map weighted factor scores directly into the coefficient range, or
 `method: regression` to follow the paper's calibration idea with anchor
 coefficients.
+
+The `interval:` block controls prediction intervals. If `base_forecast` or
+`reference_forecast` rows contain `lower` and `upper` values, those bounds are
+propagated through the terminal intervention and recovery-curve stages. When
+package-native base models are fitted with a validation window, the pipeline
+uses validation residual quantiles to calibrate base forecast intervals and then
+recovers final lower/upper paths from trend-scale recovery curves and seasonal
+components.
 
 The `hierarchy:` block is optional. With `enabled: true`, the pipeline forecasts
 the inferred bottom-level series and then applies bottom-up reconciliation to
@@ -537,6 +576,17 @@ from riseforecast import RecoveryDataset
 dataset = RecoveryDataset.from_directory("examples/tourism_competition/data")
 baseline = dataset.matrix(kind="base_forecast", name="legacy_ensemble")
 ```
+
+To audit the migration against original legacy files, run:
+
+```bash
+python examples/tourism_competition/validate_reproduction.py
+```
+
+The `converted_vs_legacy` checks verify that compact CSV data matches the
+original Excel/CSV artifacts. The `package_vs_legacy` checks compare the current
+Python package outputs to the paper artifacts and should be interpreted as a
+diagnostic report, not as a required exact-match test.
 
 ## Legacy Paper Implementation
 

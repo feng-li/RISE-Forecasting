@@ -1,4 +1,4 @@
-from riseforecast.metrics import mae, mase, winkler_score
+from riseforecast.metrics import interval_coverage, mae, mase, winkler_score
 
 
 def test_mae() -> None:
@@ -11,3 +11,7 @@ def test_mase() -> None:
 
 def test_winkler_score_inside_interval() -> None:
     assert winkler_score([10], [8], [12], alpha=0.2) == 4.0
+
+
+def test_interval_coverage() -> None:
+    assert interval_coverage([10, 20], [8, 18], [12, 19]) == 0.5

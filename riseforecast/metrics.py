@@ -78,3 +78,17 @@ def winkler_score(
     score[below] += (2 / alpha) * (lower_arr[below] - actual_arr[below])
     score[above] += (2 / alpha) * (actual_arr[above] - upper_arr[above])
     return float(np.nanmean(score))
+
+
+def interval_coverage(
+    actual: ArrayLike,
+    lower: ArrayLike,
+    upper: ArrayLike,
+) -> float:
+    """Empirical coverage rate for lower/upper prediction bounds."""
+
+    actual_arr = _to_numpy(actual)
+    lower_arr = _to_numpy(lower)
+    upper_arr = _to_numpy(upper)
+    covered = (actual_arr >= lower_arr) & (actual_arr <= upper_arr)
+    return float(np.nanmean(covered.astype(float)))

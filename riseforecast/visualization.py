@@ -32,10 +32,18 @@ def plot_forecast(
     title: str = "Recovery forecast",
     value_name: str = "Value",
     show_interval: bool = True,
+    interval_opacity: float = 0.14,
+    interval_level: float | None = None,
+    interval_label: str | None = None,
 ):
     """Plot forecast paths, optional observed history, and optional intervals."""
 
     go = _plotly_go()
+    _validate_opacity(interval_opacity)
+    interval_name = _interval_label(
+        interval_level=interval_level,
+        interval_label=interval_label,
+    )
     forecast_frame = _coerce_forecast_frame(forecast)
     values = _select_entities(_prepare_matrix(forecast_frame.values), entities)
     observed_values = (
@@ -95,10 +103,10 @@ def plot_forecast(
                     x=upper.index,
                     y=upper[entity],
                     mode="lines",
-                    name=f"{entity} interval",
+                    name=f"{entity} {interval_name}",
                     legendgroup=group,
                     fill="tonexty",
-                    fillcolor=_rgba(color, 0.14),
+                    fillcolor=_rgba(color, interval_opacity),
                     hoverinfo="skip",
                     line={"color": _rgba(color, 0.0), "width": 0},
                 )
@@ -134,17 +142,28 @@ def plot_recovery_curve(
     title: str = "Recovery curve forecast",
     value_name: str = "Value",
     include_component_curves: bool = True,
+    show_interval: bool = True,
+    interval_opacity: float = 0.14,
+    interval_level: float | None = None,
+    interval_label: str | None = None,
 ):
     """Plot the final recovery forecast and optional curve components."""
 
     go = _plotly_go()
     fig = plot_forecast(
-        ForecastFrame(values=forecast.values),
+        ForecastFrame(
+            values=forecast.values,
+            lower=forecast.lower,
+            upper=forecast.upper,
+        ),
         observed=observed,
         entities=entities,
         title=title,
         value_name=value_name,
-        show_interval=False,
+        show_interval=show_interval,
+        interval_opacity=interval_opacity,
+        interval_level=interval_level,
+        interval_label=interval_label,
     )
     values = _select_entities(_prepare_matrix(forecast.values), entities)
 
@@ -224,3 +243,28 @@ def _rgba(hex_color: str, alpha: float) -> str:
     green = int(color[2:4], 16)
     blue = int(color[4:6], 16)
     return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
+def _validate_opacity(value: float) -> None:
+    if not 0 <= value <= 1:
+        raise ValueError("interval_opacity must be between 0 and 1.")
+
+
+def _interval_label(
+    interval_level: float | None,
+    interval_label: str | None,
+) -> str:
+    if interval_label is not None:
+        return interval_label
+    if interval_level is None:
+        return "interval"
+    if not 0 < interval_level < 1:
+        raise ValueError("interval_level must be between 0 and 1.")
+    return f"{_format_percent(interval_level)} interval"
+
+
+def _format_percent(value: float) -> str:
+    percent = value * 100
+    if abs(percent - round(percent)) < 1e-9:
+        return f"{round(percent):.0f}%"
+    return f"{percent:.1f}%"

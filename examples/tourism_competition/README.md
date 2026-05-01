@@ -48,13 +48,19 @@ python examples/tourism_competition/recovery_curve_forecast.py
 ```
 
 The full runner uses the configured package-native base models for the no-shock
-baseline and the configured X-based reference forecasts as the initial anchor. The
-terminal stage estimates recovery coefficients from the three paper score factors
+baseline. It now validates the base models on the configured pre-shock validation
+window, keeps the best configured fraction, and combines the selected forecasts
+with the configured ensemble method. The configured X-based reference forecasts
+are then used as the initial anchor. The terminal stage estimates recovery
+coefficients from the three paper score factors
 (`policy`, `distance`, and `recovery`) using the configured regression anchors.
-recovery curve stage estimates STL seasonal multipliers from historical pre-shock
+The recovery curve stage estimates STL seasonal multipliers from historical pre-shock
 observations, fits the three paper-style trend curves, and then recovers the full
 forecast from the trend recovery curve and seasonal components. The returned
 forecast object keeps these pieces separately.
+Optional hierarchy reconciliation is configured through `parent_id` metadata in
+`series.csv`; bottom nodes are inferred from `parent_id`, without an `is_bottom`
+column.
 Removing the `base:` section from `config.yaml` makes the pipeline fall back to
 the converted legacy baseline artifact.
 

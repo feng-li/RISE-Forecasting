@@ -10,9 +10,12 @@ import yaml
 
 CurveName = Literal["linear", "quadratic", "logistic"]
 EnsembleName = Literal["mean", "error_weighted", "ridge", "lasso"]
+ValidationMetricName = Literal["mae", "rmse", "mape", "smape"]
 ReferenceMethodName = Literal["ratio", "growth_rate", "arimax"]
 RatioStatisticName = Literal["mean", "median"]
 RecoveryCoefficientMethodName = Literal["direct", "weighted_score", "regression"]
+HierarchyMethodName = Literal["bottom_up"]
+HierarchyStageName = Literal["recovery"]
 
 DEFAULT_BASE_MODELS: tuple[str, ...] = (
     "seasonal_naive",
@@ -59,6 +62,9 @@ class BaseForecastConfig:
     horizon: int = 24
     models: tuple[str, ...] = DEFAULT_BASE_MODELS
     ensemble: EnsembleName = "mean"
+    selection_fraction: float = 0.8
+    validation_metric: ValidationMetricName = "mape"
+    stacking_alpha: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -117,6 +123,16 @@ class CurveConfig:
 
 
 @dataclass(frozen=True)
+class HierarchyConfig:
+    """Configuration for optional hierarchy reconciliation."""
+
+    enabled: bool = False
+    method: HierarchyMethodName = "bottom_up"
+    parent_column: str = "parent_id"
+    apply_to: tuple[HierarchyStageName, ...] = ("recovery",)
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     """Top-level configuration for a recovery-informed forecast."""
 
@@ -133,6 +149,7 @@ class PipelineConfig:
         default_factory=RecoveryCoefficientConfig
     )
     curve: CurveConfig = field(default_factory=CurveConfig)
+    hierarchy: HierarchyConfig = field(default_factory=HierarchyConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> PipelineConfig:
@@ -165,6 +182,7 @@ class PipelineConfig:
             ),
             recovery=_parse_recovery(data.get("recovery")),
             curve=_parse_curve(data.get("curve")),
+            hierarchy=_parse_hierarchy(data.get("hierarchy")),
         )
 
 
@@ -195,6 +213,9 @@ def _parse_base(data: Any) -> BaseForecastConfig | None:
         horizon=int(data.get("horizon", 24)),
         models=tuple(data.get("models", DEFAULT_BASE_MODELS)),
         ensemble=data.get("ensemble", "mean"),
+        selection_fraction=float(data.get("selection_fraction", 0.8)),
+        validation_metric=data.get("validation_metric", "mape"),
+        stacking_alpha=float(data.get("stacking_alpha", 1.0)),
     )
 
 
@@ -285,6 +306,20 @@ def _parse_curve(data: Any) -> CurveConfig:
         trend_history_end=_optional_str(data.get("trend_history_end")),
         quadratic_terminal_weight=float(data.get("quadratic_terminal_weight", 18.0)),
         logistic_anchor_dates=tuple(data.get("logistic_anchor_dates", ())),
+    )
+
+
+def _parse_hierarchy(data: Any) -> HierarchyConfig:
+    if data is None:
+        return HierarchyConfig()
+    apply_to = data.get("apply_to", ("recovery",))
+    if isinstance(apply_to, str):
+        apply_to = (apply_to,)
+    return HierarchyConfig(
+        enabled=bool(data.get("enabled", False)),
+        method=data.get("method", "bottom_up"),
+        parent_column=str(data.get("parent_column", "parent_id")),
+        apply_to=tuple(apply_to),
     )
 
 

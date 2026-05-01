@@ -12,6 +12,7 @@ import yaml
 
 if TYPE_CHECKING:
     from riseforecast.config import PipelineConfig
+    from riseforecast.hierarchy import HierarchySpec
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,13 @@ class RecoveryDataset:
         """Return static series metadata."""
 
         return self.series.copy()
+
+    def hierarchy(self, parent_column: str = "parent_id") -> HierarchySpec | None:
+        """Return hierarchy metadata when `parent_column` is present."""
+
+        from riseforecast.hierarchy import hierarchy_from_series
+
+        return hierarchy_from_series(self.series, parent_column=parent_column)
 
     def pipeline_config(self) -> PipelineConfig:
         """Return this dataset's config as a `PipelineConfig`."""

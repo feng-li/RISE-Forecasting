@@ -14,6 +14,15 @@ def test_pipeline_config_from_dict_parses_dataset_config() -> None:
     assert config.reference.x[0].name == "search_growth"
     assert config.reference.x[0].variables == ("search_index",)
     assert config.reference.x[0].method == "growth_rate"
+    assert config.base is not None
+    assert config.base.ensemble == "ridge"
+    assert config.base.validation_start == "2024-01"
+    assert config.base.validation_metric == "mae"
+    assert config.base.selection_fraction == 1.0
+    assert config.hierarchy.enabled is True
+    assert config.hierarchy.method == "bottom_up"
+    assert config.hierarchy.parent_column == "parent_id"
+    assert config.hierarchy.apply_to == ("recovery",)
     assert config.recovery.method == "regression"
     assert config.recovery.score_columns == ("policy", "distance", "recovery")
     assert config.recovery.weights == {
@@ -60,6 +69,16 @@ def compact_config() -> dict[str, object]:
             "terminal_date": "2024-05",
             "forecast_end": "2024-05",
         },
+        "base": {
+            "train_end": "2024-02",
+            "validation_start": "2024-01",
+            "validation_end": "2024-02",
+            "models": ["random_walk_drift"],
+            "ensemble": "ridge",
+            "selection_fraction": 1.0,
+            "validation_metric": "mae",
+            "stacking_alpha": 0.5,
+        },
         "reference": {
             "start": "2024-03",
             "end": "2024-03",
@@ -77,6 +96,12 @@ def compact_config() -> dict[str, object]:
             "score_columns": ["policy", "distance", "recovery"],
             "weights": {"policy": 2.0, "distance": 1.0, "recovery": 1.0},
             "anchors": {"series_a": 0.5, "series_b": 1.0},
+        },
+        "hierarchy": {
+            "enabled": True,
+            "method": "bottom_up",
+            "parent_column": "parent_id",
+            "apply_to": ["recovery"],
         },
         "curve": {"curves": ["linear"]},
     }

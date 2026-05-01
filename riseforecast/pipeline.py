@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -14,6 +14,7 @@ from riseforecast.config import PipelineConfig
 if TYPE_CHECKING:
     from riseforecast.curves import RecoveryCurveForecast
     from riseforecast.data import ForecastFrame, RecoveryDataset
+    from riseforecast.hierarchy import HierarchySpec, ReconciliationResult
     from riseforecast.initial import InitialForecast
     from riseforecast.intervention import InterventionTerminalForecast
 
@@ -23,6 +24,10 @@ class PipelineState:
     """Fitted artifacts produced by the three RISE stages."""
 
     base_forecast: ForecastFrame | None = None
+    base_validation_errors: pd.Series | None = None
+    base_selected_models: tuple[str, ...] = ()
+    hierarchy: HierarchySpec | None = None
+    hierarchy_reconciliation: ReconciliationResult | None = None
     initial_forecast: InitialForecast | None = None
     reference_forecast: ForecastFrame | None = None
     recovery_coefficients: pd.Series | None = None
@@ -136,18 +141,23 @@ class RecoveryForecastingPipeline:
     ) -> RecoveryForecastingPipeline:
         """Fit all implemented stages using a `RecoveryDataset`."""
 
+        self.state.hierarchy = self._dataset_hierarchy(dataset)
         observed = dataset.observed_target()
+        model_observed = _bottom_level_matrix(observed, self.state.hierarchy)
         self.fit(
-            observed=observed,
-            external_signals=dataset.exogenous_variables(),
+            observed=model_observed,
+            external_signals=_bottom_level_signals(
+                dataset.exogenous_variables(),
+                self.state.hierarchy,
+            ),
         )
         self.state.base_forecast = self._fit_base_forecast(
             dataset=dataset,
-            observed=observed,
+            observed=model_observed,
             fallback_name=base_forecast_name,
         )
         self.state.seasonal_multipliers = self._seasonal_multipliers(
-            observed=observed,
+            observed=model_observed,
             base_forecast=self.state.base_forecast.values,
         )
         self.state.recovery_coefficients = self._estimate_recovery_coefficients(
@@ -170,8 +180,12 @@ class RecoveryForecastingPipeline:
             dataset=dataset,
             fallback_name=reference_forecast_name,
         )
+        initial_forecast = _bottom_level_matrix(
+            initial_forecast,
+            self.state.hierarchy,
+        )
         self.state.trend_history = self._trend_history_for_curve(
-            observed=observed,
+            observed=model_observed,
             initial_forecast=initial_forecast,
         )
         from riseforecast.curves import RecoveryCurveForecaster
@@ -191,6 +205,7 @@ class RecoveryForecastingPipeline:
             trend_history=self.state.trend_history,
             base_forecast=self.state.base_forecast.values,
         )
+        self._reconcile_recovery_forecast()
         return self
 
     def predict(self) -> ForecastFrame:
@@ -213,13 +228,19 @@ class RecoveryForecastingPipeline:
         from riseforecast.data import ForecastFrame
 
         if self.config.base is None:
-            return dataset.forecast_frame(kind="base_forecast", name=fallback_name)
-        if self.config.base.ensemble != "mean":
-            raise ValueError("Only mean base forecast ensembles are implemented.")
+            return _bottom_level_forecast_frame(
+                dataset.forecast_frame(kind="base_forecast", name=fallback_name),
+                self.state.hierarchy,
+            )
 
         from riseforecast.base_models import forecast_panel
-        from riseforecast.ensembles import simple_average
+        from riseforecast.ensembles import (
+            combine_panel_forecasts,
+            forecast_errors,
+            select_top_models,
+        )
 
+        _validate_base_validation_config(self.config.base)
         horizon = max(
             self.config.base.horizon,
             _horizon_to_date(
@@ -228,17 +249,121 @@ class RecoveryForecastingPipeline:
                 frequency=self.config.frequency,
             ),
         )
+        validation_forecasts = None
+        validation_actual = None
+        selected_models = tuple(self.config.base.models)
+        if self._has_base_validation_period():
+            validation_actual = _validation_actual(
+                observed=observed,
+                validation_start=pd.Timestamp(self.config.base.validation_start),
+                validation_end=pd.Timestamp(self.config.base.validation_end),
+            )
+            validation_horizon = _horizon_to_date(
+                train_end=_previous_period(
+                    pd.Timestamp(self.config.base.validation_start),
+                    frequency=self.config.frequency,
+                ),
+                forecast_end=pd.Timestamp(self.config.base.validation_end),
+                frequency=self.config.frequency,
+            )
+            validation_components = forecast_panel(
+                observed=observed,
+                models=self.config.base.models,
+                horizon=validation_horizon,
+                train_end=_previous_period(
+                    pd.Timestamp(self.config.base.validation_start),
+                    frequency=self.config.frequency,
+                ),
+                frequency=self.config.frequency,
+            )
+            validation_forecasts = {
+                name: forecast.values.reindex(validation_actual.index)
+                for name, forecast in validation_components.items()
+            }
+            self.state.base_validation_errors = forecast_errors(
+                validation_forecasts,
+                actual=validation_actual,
+                metric=self.config.base.validation_metric,
+            )
+            selected_models = select_top_models(
+                self.state.base_validation_errors,
+                fraction=self.config.base.selection_fraction,
+            )
+        elif self.config.base.ensemble != "mean":
+            raise ValueError(
+                f"{self.config.base.ensemble} base ensemble requires "
+                "validation_start and validation_end."
+            )
+        self.state.base_selected_models = selected_models
+
         forecasts = forecast_panel(
             observed=observed,
-            models=self.config.base.models,
+            models=selected_models,
             horizon=horizon,
             train_end=self.config.base.train_end,
             frequency=self.config.frequency,
         )
-        values = simple_average(
-            {name: forecast.values for name, forecast in forecasts.items()}
+        future_forecasts = {
+            name: forecast.values for name, forecast in forecasts.items()
+        }
+        if validation_forecasts is not None:
+            validation_forecasts = {
+                name: validation_forecasts[name] for name in selected_models
+            }
+        validation_errors = (
+            None
+            if self.state.base_validation_errors is None
+            else self.state.base_validation_errors.loc[list(selected_models)]
+        )
+        values = combine_panel_forecasts(
+            future_forecasts=future_forecasts,
+            ensemble=self.config.base.ensemble,
+            validation_errors=validation_errors,
+            validation_forecasts=validation_forecasts,
+            validation_actual=validation_actual,
+            stacking_alpha=self.config.base.stacking_alpha,
         )
         return ForecastFrame(values=values)
+
+    def _dataset_hierarchy(self, dataset: RecoveryDataset) -> HierarchySpec | None:
+        if not self.config.hierarchy.enabled:
+            return None
+        hierarchy = dataset.hierarchy(parent_column=self.config.hierarchy.parent_column)
+        if hierarchy is None:
+            raise ValueError(
+                "hierarchy.enabled is true, but the dataset has no hierarchy "
+                f"column: {self.config.hierarchy.parent_column}"
+            )
+        return hierarchy
+
+    def _reconcile_recovery_forecast(self) -> None:
+        if self.state.hierarchy is None:
+            return
+        if "recovery" not in self.config.hierarchy.apply_to:
+            return
+        if self.state.recovery_curve_forecast is None:
+            return
+
+        from riseforecast.hierarchy import reconcile_forecasts
+
+        result = reconcile_forecasts(
+            self.state.recovery_curve_forecast.values,
+            hierarchy=self.state.hierarchy,
+            method=self.config.hierarchy.method,
+        )
+        self.state.hierarchy_reconciliation = result
+        self.state.recovery_curve_forecast = replace(
+            self.state.recovery_curve_forecast,
+            values=result.values,
+        )
+
+    def _has_base_validation_period(self) -> bool:
+        if self.config.base is None:
+            return False
+        return (
+            self.config.base.validation_start is not None
+            and self.config.base.validation_end is not None
+        )
 
     def _estimate_recovery_coefficients(
         self,
@@ -342,3 +467,89 @@ def _horizon_to_date(
     if dates.empty:
         raise ValueError("forecast_end must be later than base train_end.")
     return len(dates)
+
+
+def _previous_period(date: pd.Timestamp, frequency: str) -> pd.Timestamp:
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    return pd.Timestamp(date) - offset
+
+
+def _validation_actual(
+    observed: pd.DataFrame,
+    validation_start: pd.Timestamp,
+    validation_end: pd.Timestamp,
+) -> pd.DataFrame:
+    actual = observed.copy()
+    actual.index = pd.to_datetime(actual.index)
+    actual = actual.sort_index().loc[validation_start:validation_end]
+    if actual.empty:
+        raise ValueError("Base validation period has no observed target rows.")
+    return actual
+
+
+def _bottom_level_matrix(
+    matrix: pd.DataFrame,
+    hierarchy: HierarchySpec | None,
+) -> pd.DataFrame:
+    if hierarchy is None:
+        return matrix
+    missing = [node for node in hierarchy.bottom_ids if node not in matrix.columns]
+    if missing:
+        raise ValueError(
+            f"Matrix is missing hierarchy bottom nodes: {', '.join(missing)}"
+        )
+    return matrix.loc[:, list(hierarchy.bottom_ids)]
+
+
+def _bottom_level_forecast_frame(
+    forecast: ForecastFrame,
+    hierarchy: HierarchySpec | None,
+) -> ForecastFrame:
+    if hierarchy is None:
+        return forecast
+
+    from riseforecast.data import ForecastFrame
+
+    return ForecastFrame(
+        values=_bottom_level_matrix(forecast.values, hierarchy),
+        lower=(
+            None
+            if forecast.lower is None
+            else _bottom_level_matrix(forecast.lower, hierarchy)
+        ),
+        upper=(
+            None
+            if forecast.upper is None
+            else _bottom_level_matrix(forecast.upper, hierarchy)
+        ),
+    )
+
+
+def _bottom_level_signals(
+    signals: Mapping[str, pd.DataFrame],
+    hierarchy: HierarchySpec | None,
+) -> dict[str, pd.DataFrame]:
+    if hierarchy is None:
+        return dict(signals)
+    return {
+        name: _bottom_level_matrix(signal, hierarchy)
+        for name, signal in signals.items()
+    }
+
+
+def _validate_base_validation_config(base_config: object) -> None:
+    validation_start = base_config.validation_start
+    validation_end = base_config.validation_end
+    if (validation_start is None) != (validation_end is None):
+        raise ValueError(
+            "base.validation_start and base.validation_end must be configured together."
+        )
+    if validation_start is None or validation_end is None:
+        return
+    start = pd.Timestamp(validation_start)
+    end = pd.Timestamp(validation_end)
+    train_end = pd.Timestamp(base_config.train_end)
+    if start > end:
+        raise ValueError("base.validation_start must be before validation_end.")
+    if end > train_end:
+        raise ValueError("base.validation_end cannot be after base.train_end.")

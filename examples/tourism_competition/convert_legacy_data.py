@@ -523,6 +523,8 @@ def build_config() -> dict:
         },
         "base": {
             "train_end": "2019-12",
+            "validation_start": "2018-01",
+            "validation_end": "2019-12",
             "horizon": 60,
             "models": [
                 "seasonal_naive",
@@ -533,6 +535,9 @@ def build_config() -> dict:
                 "holt_winters",
             ],
             "ensemble": "mean",
+            "selection_fraction": 0.8,
+            "validation_metric": "mape",
+            "stacking_alpha": 1.0,
         },
         "reference": {
             "start": "2023-01",

@@ -117,6 +117,70 @@ def test_pipeline_uses_configured_regression_recovery_coefficients() -> None:
     assert pipeline.state.terminal_forecast.values.loc["series_b"] == 250.0
 
 
+def test_pipeline_selects_top_base_models_from_validation_period() -> None:
+    dataset = base_ensemble_dataset(
+        ensemble="mean",
+        selection_fraction=0.8,
+    )
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+
+    assert pipeline.state.base_validation_errors is not None
+    assert pipeline.state.base_selected_models == ("random_walk_drift",)
+    assert pipeline.state.base_forecast is not None
+    assert np.allclose(
+        pipeline.state.base_forecast.values["series_a"],
+        [90.0, 100.0],
+    )
+
+
+def test_pipeline_supports_validation_driven_base_ensembles() -> None:
+    for ensemble in ("mean", "error_weighted", "ridge", "lasso"):
+        dataset = base_ensemble_dataset(
+            ensemble=ensemble,
+            selection_fraction=1.0,
+        )
+
+        pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(
+            dataset
+        )
+
+        assert pipeline.state.base_validation_errors is not None
+        assert pipeline.state.base_selected_models == (
+            "random_walk_drift",
+            "seasonal_naive",
+        )
+        assert pipeline.state.base_forecast is not None
+        assert np.isfinite(pipeline.state.base_forecast.values.to_numpy()).all()
+
+
+def test_pipeline_bottom_up_reconciles_final_recovery_forecast() -> None:
+    dataset = hierarchical_recovery_dataset()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    forecast = pipeline.predict()
+
+    assert pipeline.state.hierarchy is not None
+    assert pipeline.state.hierarchy.bottom_ids == ("series_a", "series_b")
+    assert pipeline.state.hierarchy_reconciliation is not None
+    assert pipeline.state.base_forecast is not None
+    assert pipeline.state.base_forecast.values.columns.tolist() == [
+        "series_a",
+        "series_b",
+    ]
+    assert forecast.values.columns.tolist() == [
+        "total",
+        "region",
+        "series_a",
+        "series_b",
+    ]
+    assert np.allclose(
+        forecast.values["total"],
+        forecast.values["series_a"] + forecast.values["series_b"],
+    )
+    assert np.allclose(forecast.values.loc["2024-04-01", "total"], 250.0)
+
+
 def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:
     dataset = seasonal_recovery_dataset()
 
@@ -184,6 +248,126 @@ def seasonal_recovery_dataset() -> RecoveryDataset:
             "trend_history_start": "2024-01",
             "trend_history_end": "2024-01",
         },
+    }
+    return RecoveryDataset(
+        series=series,
+        panel=pd.DataFrame(rows),
+        config=config,
+    ).validate()
+
+
+def hierarchical_recovery_dataset() -> RecoveryDataset:
+    series = pd.DataFrame(
+        {
+            "series_id": ["total", "region", "series_a", "series_b"],
+            "series_name": ["Total", "Region", "Series A", "Series B"],
+            "target_name": ["target", "target", "target", "target"],
+            "unit": ["count", "count", "count", "count"],
+            "parent_id": [None, "total", "region", "region"],
+            "coefficient": [np.nan, np.nan, 0.5, 1.0],
+        }
+    )
+    observed = pd.DataFrame(
+        {
+            "series_a": [80.0, 90.0],
+            "series_b": [160.0, 180.0],
+        },
+        index=pd.date_range("2024-01-01", periods=2, freq="MS"),
+    )
+    reference = pd.DataFrame(
+        {
+            "series_a": [90.0],
+            "series_b": [180.0],
+        },
+        index=pd.to_datetime(["2024-02-01"]),
+    )
+    base_forecast = pd.DataFrame(
+        {
+            "series_a": [95.0, 100.0],
+            "series_b": [190.0, 200.0],
+        },
+        index=pd.date_range("2024-03-01", periods=2, freq="MS"),
+    )
+    rows = []
+    rows.extend(_matrix_rows(observed, kind="observed", name="target"))
+    rows.extend(
+        _matrix_rows(reference, kind="reference_forecast", name="legacy_average")
+    )
+    rows.extend(
+        _matrix_rows(base_forecast, kind="base_forecast", name="legacy_ensemble")
+    )
+    config = {
+        "frequency": "MS",
+        "shock": {"start": "2024-01"},
+        "dates": {
+            "observed_until": "2024-02",
+            "initial_date": "2024-02",
+            "forecast_start": "2024-03",
+            "terminal_date": "2024-04",
+            "forecast_end": "2024-04",
+        },
+        "hierarchy": {
+            "enabled": True,
+            "method": "bottom_up",
+            "parent_column": "parent_id",
+            "apply_to": ["recovery"],
+        },
+        "curve": {"curves": ["linear"]},
+    }
+    return RecoveryDataset(
+        series=series,
+        panel=pd.DataFrame(rows),
+        config=config,
+    ).validate()
+
+
+def base_ensemble_dataset(
+    ensemble: str,
+    selection_fraction: float,
+) -> RecoveryDataset:
+    series = pd.DataFrame(
+        {
+            "series_id": ["series_a"],
+            "series_name": ["Series A"],
+            "target_name": ["target"],
+            "unit": ["count"],
+            "coefficient": [1.0],
+        }
+    )
+    observed = pd.DataFrame(
+        {"series_a": np.arange(10.0, 90.0, 10.0)},
+        index=pd.date_range("2020-01-01", periods=8, freq="MS"),
+    )
+    reference = pd.DataFrame(
+        {"series_a": [80.0]},
+        index=pd.to_datetime(["2020-08-01"]),
+    )
+    rows = []
+    rows.extend(_matrix_rows(observed, kind="observed", name="target"))
+    rows.extend(
+        _matrix_rows(reference, kind="reference_forecast", name="legacy_average")
+    )
+    config = {
+        "frequency": "MS",
+        "shock": {"start": "2020-09"},
+        "dates": {
+            "observed_until": "2020-08",
+            "initial_date": "2020-08",
+            "forecast_start": "2020-09",
+            "terminal_date": "2020-10",
+            "forecast_end": "2020-10",
+        },
+        "base": {
+            "train_end": "2020-08",
+            "validation_start": "2020-05",
+            "validation_end": "2020-08",
+            "horizon": 2,
+            "models": ["random_walk_drift", "seasonal_naive"],
+            "ensemble": ensemble,
+            "selection_fraction": selection_fraction,
+            "validation_metric": "mae",
+        },
+        "curve": {"curves": ["linear"]},
     }
     return RecoveryDataset(
         series=series,

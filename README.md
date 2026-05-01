@@ -134,6 +134,13 @@ base_forecasts = forecast_panel(
 baseline = base_forecasts["holt"].values
 ```
 
+The pipeline can also reproduce the paper's validation-driven base combination
+logic. When `base.validation_start` and `base.validation_end` are configured, each
+candidate model is trained before the validation window, scored on that window,
+the best `selection_fraction` of models is kept, and the selected models are
+refit through `base.train_end` before combination. Supported base ensembles are
+`mean`, `error_weighted`, `ridge`, and `lasso`.
+
 Initial forecasts can also be generated from observed data with the same model
 registry. This creates the near-term path ending at `initial_date`; the final row is
 the initial anchor for the recovery curve:
@@ -292,8 +299,21 @@ coefficients.
 Example columns:
 
 ```text
-series_id,series_name,target_name,unit,group,subgroup,policy,distance,recovery,coefficient
-canada,Canada,outbound_tourists,count,America,,3,1,2,0.70
+series_id,series_name,target_name,unit,parent_id,group,subgroup,policy,distance,recovery,coefficient
+canada,Canada,outbound_tourists,count,america,America,,3,1,2,0.70
+```
+
+`parent_id` is optional. When present and enabled in `config.yaml`, it describes
+an explicit hierarchy as an edge list. Bottom-level series are inferred as
+series that never appear as a `parent_id`; no `is_bottom` column is used. Parent
+nodes should also be rows in `series.csv`:
+
+```text
+series_id,series_name,target_name,unit,parent_id
+total,Total,outbound_tourists,count,
+america,America,outbound_tourists,count,total
+canada,Canada,outbound_tourists,count,america
+mexico,Mexico,outbound_tourists,count,america
 ```
 
 ### `panel.csv`
@@ -354,6 +374,8 @@ dates:
   forecast_end: "2024-07"
 base:
   train_end: "2019-12"
+  validation_start: "2018-01"
+  validation_end: "2019-12"
   horizon: 60
   models:
     - seasonal_naive
@@ -363,6 +385,9 @@ base:
     - holt
     - holt_winters
   ensemble: mean
+  selection_fraction: 0.8
+  validation_metric: mape
+  stacking_alpha: 1.0
 reference:
   start: "2023-01"
   end: "2023-06"
@@ -405,6 +430,11 @@ curve:
   trend_history_end: "2023-06"
   quadratic_terminal_weight: 18
   logistic_anchor_dates: ["2023-12", "2024-07", "2024-12"]
+hierarchy:
+  enabled: false
+  method: bottom_up
+  parent_column: parent_id
+  apply_to: [recovery]
 ```
 
 `RecoveryForecastingPipeline.from_dataset(dataset)` consumes these settings and
@@ -418,6 +448,11 @@ The `recovery:` block controls the terminal intervention coefficient. Use
 to map weighted factor scores directly into the coefficient range, or
 `method: regression` to follow the paper's calibration idea with anchor
 coefficients.
+
+The `hierarchy:` block is optional. With `enabled: true`, the pipeline forecasts
+the inferred bottom-level series and then applies bottom-up reconciliation to
+the final recovery forecast. Aggregate columns are produced by summing their
+bottom descendants.
 
 For the tourism competition, the legacy artifacts map into this structure as:
 

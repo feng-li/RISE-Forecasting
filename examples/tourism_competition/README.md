@@ -1,7 +1,13 @@
 # Tourism Competition Example
 
-This directory will host the paper reproduction workflow on top of the reusable
-`riseforecast` package.
+This directory contains the tourism competition example for the reusable
+`riseforecast` recovery forecasting package.
+
+The exact paper implementation is preserved here:
+
+```text
+examples/tourism_competition/legacypapercode/
+```
 
 The migration should keep tourism-specific files here:
 
@@ -10,7 +16,7 @@ The migration should keep tourism-specific files here:
 - flight data preparation
 - destination hierarchy
 - paper-specific recovery score table
-- reproduction checks against legacy Excel outputs
+- optional reproduction checks against legacy Excel outputs
 
 The terminal forecast stage can already be run against the legacy baseline
 artifact converted to the compact dataset:
@@ -88,24 +94,37 @@ recovery forecast.
 python examples/tourism_competition/evaluate_migration.py
 ```
 
-For a direct reproduction audit against the original `legacypapercode/` Excel and
-CSV artifacts, run:
+Package-native diagnostics summarize the configured Python workflow without
+treating exact legacy reproduction as the target:
+
+```bash
+python examples/tourism_competition/diagnose_package_forecast.py
+```
+
+This reports selected base models, validation errors, recovery coefficients,
+terminal forecasts, final forecast summaries, and point/interval evaluation when
+actual observations overlap the forecast period. Use `--output-dir` to save the
+diagnostic tables as CSV files.
+
+For an optional direct reproduction audit against the original
+`examples/tourism_competition/legacypapercode/` Excel and CSV artifacts, run:
 
 ```bash
 python examples/tourism_competition/validate_reproduction.py
 ```
 
-This writes `examples/tourism_competition/reproduction_validation.csv` and prints
-an overall stage summary. The `converted_vs_legacy` rows should pass up to small
-floating point differences; `package_vs_legacy` rows quantify where the
-generalized package implementation differs from the original paper scripts.
-These differences are expected unless the package is configured to consume the
-same legacy stage artifacts. The Python implementation uses standard package
-APIs and current dependency behavior, so it can produce slightly different
-results from the original R/notebook workflow even for closely related models.
+This is a legacy audit, not the package-native validation target. It writes
+`examples/tourism_competition/reproduction_validation.csv` and prints an overall
+stage summary. The `converted_vs_legacy` rows should pass up to small floating
+point differences; `package_vs_legacy` rows quantify where the generalized
+package implementation differs from the original paper scripts. These
+differences are expected unless the package is configured to consume the same
+legacy stage artifacts. The Python implementation uses standard package APIs and
+current dependency behavior, so it can produce slightly different results from
+the original R/notebook workflow even for closely related models.
 
-The legacy artifacts can be converted to the compact recovery forecasting data
-format:
+The legacy artifacts under `examples/tourism_competition/legacypapercode/` can be
+converted to the compact recovery forecasting data format:
 
 ```bash
 python examples/tourism_competition/convert_legacy_data.py

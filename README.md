@@ -1,41 +1,54 @@
-# RISE: Recovery-Informed Forecasting Strategy Enhancement
+# riseforecast: General Recovery Forecasting with RISE
 
-This repository contains the code for **RISE** (Recovery-Informed Strategy
-Enhancement), a three-stage forecasting framework developed for forecasting the
-recovery of **Chinese outbound tourism** after COVID-19.
+This repository contains `riseforecast`, a Python package for forecasting how a
+quantity of interest recovers after a shock. It implements the **RISE**
+(Recovery-Informed Strategy Enhancement) framework as a reusable recovery
+forecasting module.
 
-The framework was awarded **1st place in point forecasting** and **3rd place in
-interval forecasting** in the **Tourism Forecasting Competition II (2023)**.
+The package is entity-neutral: a series can be a country, route, product, store,
+market, sector, or any other time series whose post-shock recovery needs to be
+forecast. The tourism competition workflow is kept as an example application.
+That original RISE application was awarded **1st place in point forecasting** and
+**3rd place in interval forecasting** in the **Tourism Forecasting Competition II
+(2023)**.
 
 ## Repository Status
 
-This repository is currently in a **migration process**.
+This repository is currently in a **migration process** from the original paper
+code toward a standard Python package.
 
-The original paper implementation is preserved in:
-
-```text
-legacypapercode/
-```
-
-The new Python package is being developed in:
+The reusable package is developed in:
 
 ```text
 riseforecast/
 ```
 
-Use the **legacy implementation** if you want to check, reproduce, or compare
-against the implementation used for the paper. The Python package is the ongoing
-migration toward a standard, reusable recovery forecasting library.
+The tourism competition example, including converted data and example runners, is
+kept in:
+
+```text
+examples/tourism_competition/
+```
+
+The exact paper implementation is now scoped to that example and preserved in:
+
+```text
+examples/tourism_competition/legacypapercode/
+```
+
+Use `examples/tourism_competition/legacypapercode/` if you need to check,
+reproduce, or compare against the implementation used for the paper. Use
+`riseforecast/` for the general recovery forecasting package.
 
 Because the migration replaces parts of the original R/notebook workflow with
 standard Python package APIs, package-native forecasts can differ from the legacy
 paper outputs. Small numerical differences can come from library implementations,
 optimizer behavior, missing-value handling, date alignment, and floating point
 rounding. Larger differences are also expected where the Python package uses
-generalized model choices instead of the paper's tourism-specific scripts. Use
-`legacypapercode/` as the source of truth for exact paper reproduction, and use
-`examples/tourism_competition/validate_reproduction.py` to quantify stage-by-stage
-differences.
+generalized model choices instead of the paper's tourism-specific scripts.
+
+Use the package-native diagnostics for the migrated workflow. Use the legacy
+folder only when you need exact paper reproduction or a direct legacy audit.
 
 ## Methodology
 
@@ -56,7 +69,7 @@ The key idea is to avoid directly extrapolating a structurally broken time serie
 Instead, RISE anchors the forecast between a near-term recovery estimate and a
 longer-run intervention-adjusted terminal estimate.
 
-## Python Migration
+## Package Overview
 
 The Python package is named `riseforecast`.
 
@@ -577,7 +590,19 @@ dataset = RecoveryDataset.from_directory("examples/tourism_competition/data")
 baseline = dataset.matrix(kind="base_forecast", name="legacy_ensemble")
 ```
 
-To audit the migration against original legacy files, run:
+For package-native diagnostics of the migrated tourism workflow, run:
+
+```bash
+python examples/tourism_competition/diagnose_package_forecast.py
+```
+
+This reports selected base models, validation errors, recovery coefficients,
+terminal forecasts, final forecast summaries, and point/interval evaluation when
+actual observations overlap the forecast period. This is the recommended
+validation path for the generalized Python package.
+
+For an optional audit against original legacy files in
+`examples/tourism_competition/legacypapercode/`, run:
 
 ```bash
 python examples/tourism_competition/validate_reproduction.py
@@ -586,22 +611,24 @@ python examples/tourism_competition/validate_reproduction.py
 The `converted_vs_legacy` checks verify that compact CSV data matches the
 original Excel/CSV artifacts. The `package_vs_legacy` checks compare the current
 Python package outputs to the paper artifacts and should be interpreted as a
-diagnostic report, not as a required exact-match test.
+diagnostic report, not as a required exact-match test. The generated
+`examples/tourism_competition/reproduction_validation.csv` report is ignored by
+git.
 
-## Legacy Paper Implementation
+## Tourism Paper Legacy Implementation
 
 For reproducing or checking the paper's original implementation, use the legacy
 workflow under:
 
 ```text
-legacypapercode/
+examples/tourism_competition/legacypapercode/
 ```
 
 The legacy workflow is a mixture of R scripts, Python notebooks, Excel files, and
 generated artifacts. The original run order is documented in:
 
 ```text
-legacypapercode/readme.txt
+examples/tourism_competition/legacypapercode/readme.txt
 ```
 
 In short, the legacy implementation runs:

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from riseforecast.config import ReferenceForecastConfig, ReferenceXConfig
 from riseforecast.pipeline import RecoveryForecastingPipeline
@@ -9,6 +10,7 @@ from riseforecast.reference import (
     align_signal_to_target_dates,
     arimax_reference_forecast,
     coerce_signal_matrices,
+    prophet_reference_forecast,
     reference_forecast,
     reference_specs_from_config,
 )
@@ -124,6 +126,23 @@ def test_arimax_reference_forecast_accepts_multiple_exogenous_signals() -> None:
     assert np.isfinite(forecast.to_numpy()).all()
 
 
+def test_prophet_reference_forecast_returns_finite_path() -> None:
+    pytest.importorskip("prophet")
+    observed = longer_observed_matrix()
+    signal = longer_signal_matrix()
+    forecast_dates = pd.date_range("2024-01-01", periods=2, freq="MS")
+
+    forecast = prophet_reference_forecast(
+        observed=observed,
+        signals={"signal": signal},
+        forecast_dates=forecast_dates,
+        train_end="2023-12",
+    )
+
+    assert forecast.index.tolist() == list(forecast_dates)
+    assert np.isfinite(forecast.to_numpy()).all()
+
+
 def test_reference_signal_lag_indexes_signal_by_target_date() -> None:
     lagged = align_signal_to_target_dates(signal_matrix(), signal_lag=1)
 
@@ -179,6 +198,11 @@ def test_reference_specs_from_config_builds_named_x_cases() -> None:
                         "variables": ["search", "capacity"],
                         "method": "arimax",
                     },
+                    {
+                        "name": "search_prophet",
+                        "variables": ["search"],
+                        "method": "prophet",
+                    },
                 ]
             }
         }
@@ -188,6 +212,8 @@ def test_reference_specs_from_config_builds_named_x_cases() -> None:
     assert specs[0].variables == ("search",)
     assert specs[0].signal_lag == 1
     assert specs[1].variables == ("search", "capacity")
+    assert specs[2].name == "search_prophet"
+    assert specs[2].method == "prophet"
 
 
 def test_pipeline_fits_reference_stage_from_external_signals() -> None:

@@ -134,6 +134,11 @@ base_forecasts = forecast_panel(
 baseline = base_forecasts["holt"].values
 ```
 
+Before fitting package-native base models, internal missing values are imputed with
+a structural state-space Kalman smoother. Observed values are preserved, and the
+imputer falls back to deterministic interpolation when a series is too short for a
+stable state-space fit.
+
 The pipeline can also reproduce the paper's validation-driven base combination
 logic. When `base.validation_start` and `base.validation_end` are configured, each
 candidate model is trained before the validation window, scored on that window,
@@ -159,8 +164,8 @@ initial_anchor = initial.initial
 
 Reference forecasts estimate the near-term recovery state from arbitrary
 exogenous variables `X`. In the tourism competition, Baidu search and flights are
-just two tourism-specific X variables. The three reference cases are configured as
-named X cases:
+just two tourism-specific X variables. Reference cases are configured as named X
+cases:
 
 ```python
 from riseforecast import ReferenceForecaster, ReferenceXSpec
@@ -171,6 +176,7 @@ reference = ReferenceForecaster(
     train_end="2023-01",
     specs=(
         ReferenceXSpec("search_index", method="arimax", name="search_arimax", signal_lag=1),
+        ReferenceXSpec("search_index", method="prophet", name="search_prophet", signal_lag=1),
         ReferenceXSpec("search_index", method="ratio", name="search_ratio", signal_lag=1),
         ReferenceXSpec("flight_capacity", method="growth_rate", name="flight_growth"),
     ),
@@ -179,6 +185,10 @@ reference = ReferenceForecaster(
     signals=dataset.exogenous_variables(),
 )
 ```
+
+The `prophet` reference method uses Prophet with the configured X variables as
+regressors. Prophet remains an optional dependency; install it with
+`pip install -e .[prophet]` when that reference case is used.
 
 Recovery coefficients can now be estimated from general metadata rather than
 hard-coded destination values. The package supports direct coefficients, a
@@ -212,6 +222,22 @@ tbats
 nnetar
 ```
 
+When an explicit hierarchy is configured, Stage 1 can also include hierarchical
+base forecast candidates in `base.models`. These candidates are validated and
+ensembled like ordinary base models, but return bottom-level forecasts for the
+terminal and recovery-curve stages. Supported names include:
+
+```text
+top_down_arima
+top_down_ets
+wls_struct
+mint_shrink
+```
+
+Names may also combine a reconciliation method with a registered base model, for
+example `wls_struct_ets` or `mint_shrink_random_walk_drift`. Method-only names
+such as `wls_struct` and `mint_shrink` use ARIMA as the default base model.
+
 The paper base models now use direct StatsForecast implementations where
 available, including `AutoARIMA`, `AutoETS`, `Holt`, `HoltWinters`,
 `SeasonalNaive`, `RandomWalkWithDrift`, `MSTL`, and `AutoTBATS`. The `nnetar`
@@ -238,6 +264,28 @@ full forecast = recovery curve trend component * seasonal component
 
 The fitted `RecoveryCurveForecast` stores `recovery_curve` / `trend_values`,
 `seasonal_components`, and the recovered original-scale `values`.
+
+Plotly visualization helpers are available for forecast matrices and recovery
+curve outputs:
+
+```python
+from riseforecast import plot_forecast, plot_recovery_curve
+
+fig = plot_forecast(
+    forecast,
+    observed=dataset.observed_target(),
+    entities=("canada", "mexico"),
+)
+
+curve_fig = plot_recovery_curve(
+    pipeline.state.recovery_curve_forecast,
+    observed=dataset.observed_target(),
+    entities=("canada",),
+)
+```
+
+Plotly is an optional dependency; install it with `pip install -e .[plot]` when
+using these helpers.
 
 To run the current tests:
 
@@ -397,6 +445,10 @@ reference:
       variables: [search_index]
       method: arimax
       lag: 1
+    - name: search_prophet
+      variables: [search_index]
+      method: prophet
+      lag: 1
     - name: search_ratio
       variables: [search_index]
       method: ratio
@@ -453,6 +505,18 @@ The `hierarchy:` block is optional. With `enabled: true`, the pipeline forecasts
 the inferred bottom-level series and then applies bottom-up reconciliation to
 the final recovery forecast. Aggregate columns are produced by summing their
 bottom descendants.
+
+With `hierarchy.enabled: true`, hierarchical base candidates can be listed under
+`base.models` so TopDown, WLS, and MinT forecasts participate in the same
+validation and ensemble selection as ARIMA, ETS, and other base models.
+
+Additional hierarchy methods are available through Nixtla's
+`hierarchicalforecast` package. Supported method names include `top_down`,
+`top_down_forecast_proportions`, `top_down_average_proportions`,
+`top_down_proportion_averages`, `ols`, `wls_struct`, `wls_var`, `mint`,
+`mint_shrink`, and `mint_cov`. Methods such as `wls_var` and `mint_shrink`
+require insample actual and fitted values when used through the lower-level
+`reconcile_forecasts` API.
 
 For the tourism competition, the legacy artifacts map into this structure as:
 

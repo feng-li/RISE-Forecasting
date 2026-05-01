@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -148,12 +149,27 @@ def reconcile_forecasts(
     forecasts: pd.DataFrame,
     hierarchy: HierarchySpec,
     method: HierarchyMethod = "bottom_up",
+    insample: pd.DataFrame | None = None,
+    fitted: pd.DataFrame | None = None,
 ) -> ReconciliationResult:
     """Reconcile forecast columns according to an explicit hierarchy."""
 
     if method == "bottom_up":
         return bottom_up_reconcile(forecasts, hierarchy)
-    raise ValueError(f"Unsupported hierarchy reconciliation method: {method}")
+
+    return hierarchicalforecast_reconcile(
+        forecasts=forecasts,
+        hierarchy=hierarchy,
+        method=method,
+        insample=insample,
+        fitted=fitted,
+    )
+
+
+def reconciliation_requires_insample(method: HierarchyMethod) -> bool:
+    """Return whether a reconciliation method needs insample fitted values."""
+
+    return _requires_insample(method)
 
 
 def bottom_up_reconcile(
@@ -183,6 +199,62 @@ def bottom_up_reconcile(
     )
 
 
+def hierarchicalforecast_reconcile(
+    forecasts: pd.DataFrame,
+    hierarchy: HierarchySpec,
+    method: HierarchyMethod,
+    insample: pd.DataFrame | None = None,
+    fitted: pd.DataFrame | None = None,
+) -> ReconciliationResult:
+    """Reconcile forecasts with Nixtla's `hierarchicalforecast` methods.
+
+    If `forecasts` contains only bottom-level columns, aggregate-node forecasts
+    are initialized with bottom-up sums before calling `hierarchicalforecast`.
+    Methods such as `wls_var` and `mint_shrink` require matching `insample` and
+    `fitted` matrices.
+    """
+
+    reconciler = _hierarchicalforecast_reconciler(method)
+    all_forecasts = _coerce_all_node_matrix(forecasts, hierarchy)
+    y_hat = all_forecasts.loc[:, list(hierarchy.node_ids)].T.to_numpy(dtype=float)
+    summing_matrix = build_summing_matrix(hierarchy)
+    kwargs = {
+        "S": summing_matrix.to_numpy(dtype=float),
+        "y_hat": y_hat,
+        "tags": _hierarchicalforecast_tags(hierarchy),
+    }
+
+    if _requires_insample(method):
+        if insample is None or fitted is None:
+            raise ValueError(
+                f"{method} reconciliation requires insample and fitted matrices."
+            )
+    if insample is not None:
+        y_insample = _coerce_all_node_matrix(insample, hierarchy)
+        kwargs["y_insample"] = y_insample.loc[
+            :,
+            list(hierarchy.node_ids),
+        ].T.to_numpy(dtype=float)
+    if fitted is not None:
+        y_hat_insample = _coerce_all_node_matrix(fitted, hierarchy)
+        kwargs["y_hat_insample"] = y_hat_insample.loc[
+            :,
+            list(hierarchy.node_ids),
+        ].T.to_numpy(dtype=float)
+
+    output = reconciler.fit_predict(**kwargs)
+    values = pd.DataFrame(
+        output["mean"].T,
+        index=all_forecasts.index,
+        columns=hierarchy.node_ids,
+    )
+    return ReconciliationResult(
+        values=values,
+        method=method,
+        summing_matrix=summing_matrix,
+    )
+
+
 def _bottom_descendants_by_node(
     hierarchy: HierarchySpec,
 ) -> dict[str, tuple[str, ...]]:
@@ -194,6 +266,73 @@ def _bottom_descendants_by_node(
             if node == bottom or node in _ancestors(bottom, hierarchy)
         )
     return descendants
+
+
+def _coerce_all_node_matrix(
+    matrix: pd.DataFrame,
+    hierarchy: HierarchySpec,
+) -> pd.DataFrame:
+    frame = _prepare_matrix(matrix)
+    if set(hierarchy.node_ids).issubset(frame.columns):
+        return frame.loc[:, list(hierarchy.node_ids)]
+    if set(hierarchy.bottom_ids).issubset(frame.columns):
+        return bottom_up_reconcile(
+            frame.loc[:, list(hierarchy.bottom_ids)],
+            hierarchy,
+        ).values
+    missing = sorted(set(hierarchy.bottom_ids) - set(frame.columns))
+    raise ValueError(
+        "Forecast matrix must contain either all hierarchy nodes or all bottom "
+        f"nodes. Missing bottom nodes: {', '.join(missing)}"
+    )
+
+
+def _hierarchicalforecast_reconciler(method: HierarchyMethod):
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp")
+    from hierarchicalforecast.methods import MinTrace, TopDown
+
+    if method in {"top_down", "top_down_forecast_proportions"}:
+        return TopDown("forecast_proportions")
+    if method == "top_down_average_proportions":
+        return TopDown("average_proportions")
+    if method == "top_down_proportion_averages":
+        return TopDown("proportion_averages")
+    if method == "mint":
+        return MinTrace("mint_shrink")
+    if method in {"ols", "wls_struct", "wls_var", "mint_shrink", "mint_cov"}:
+        return MinTrace(method)
+    raise ValueError(f"Unsupported hierarchy reconciliation method: {method}")
+
+
+def _requires_insample(method: HierarchyMethod) -> bool:
+    return method in {
+        "top_down_average_proportions",
+        "top_down_proportion_averages",
+        "wls_var",
+        "mint",
+        "mint_shrink",
+        "mint_cov",
+    }
+
+
+def _hierarchicalforecast_tags(hierarchy: HierarchySpec) -> dict[str, np.ndarray]:
+    positions = {node: index for index, node in enumerate(hierarchy.node_ids)}
+    depths = _node_depths(hierarchy)
+    tags = {}
+    for depth in sorted(set(depths.values())):
+        tags[f"level_{depth}"] = np.array(
+            [
+                positions[node]
+                for node, node_depth in depths.items()
+                if node_depth == depth
+            ],
+            dtype=int,
+        )
+    return tags
+
+
+def _node_depths(hierarchy: HierarchySpec) -> dict[str, int]:
+    return {node: len(_ancestors(node, hierarchy)) for node in hierarchy.node_ids}
 
 
 def _ancestors(node: str, hierarchy: HierarchySpec) -> tuple[str, ...]:

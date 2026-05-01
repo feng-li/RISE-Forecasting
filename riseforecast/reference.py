@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -14,7 +15,7 @@ from riseforecast.base_models import RandomWalkDriftForecaster
 from riseforecast.data import ForecastFrame
 from riseforecast.intervention import DateLike, select_forecast_date
 
-ReferenceMethod = Literal["ratio", "growth_rate", "arimax"]
+ReferenceMethod = Literal["ratio", "growth_rate", "arimax", "prophet"]
 RatioStatistic = Literal["mean", "median"]
 
 
@@ -195,6 +196,16 @@ class ReferenceForecaster:
                 seasonal_period=spec.seasonal_period,
                 min_train_size=spec.min_train_size,
             )
+        if spec.method == "prophet":
+            return prophet_reference_forecast(
+                observed=observed,
+                signals=lagged_signals,
+                forecast_dates=forecast_dates,
+                train_end=train_end,
+                frequency=self.frequency,
+                seasonal_period=spec.seasonal_period,
+                min_train_size=spec.min_train_size,
+            )
         raise ValueError(f"Unknown reference method: {spec.method}")
 
 
@@ -348,6 +359,50 @@ def arimax_reference_forecast(
             x_train=x_train,
             x_future=x_future,
             prediction_dates=prediction_dates,
+            forecast_dates=forecast_dates,
+            frequency=frequency,
+            seasonal_period=seasonal_period,
+            min_train_size=min_train_size,
+        )
+    return pd.DataFrame(columns, index=forecast_dates)
+
+
+def prophet_reference_forecast(
+    observed: pd.DataFrame,
+    signals: Mapping[str, pd.DataFrame],
+    forecast_dates: pd.DatetimeIndex,
+    train_end: DateLike,
+    frequency: str = "MS",
+    seasonal_period: int = 12,
+    min_train_size: int = 8,
+) -> pd.DataFrame:
+    """Forecast targets with Prophet and exogenous signal regressors."""
+
+    if not signals:
+        raise ValueError("At least one exogenous signal is required for Prophet.")
+    observed_matrix = _prepare_matrix(observed)
+    signal_matrices = {
+        name: _prepare_matrix(signal).reindex(columns=observed_matrix.columns)
+        for name, signal in signals.items()
+    }
+    for signal_name, signal in signal_matrices.items():
+        _select_dates(signal, forecast_dates)
+        if signal.loc[: pd.Timestamp(train_end)].empty:
+            raise ValueError(f"Signal has no training rows: {signal_name}")
+
+    columns = {}
+    for entity in observed_matrix.columns:
+        y_train, x_train, x_future = _prophet_design_matrices(
+            observed=observed_matrix,
+            signals=signal_matrices,
+            entity=entity,
+            forecast_dates=forecast_dates,
+            train_end=pd.Timestamp(train_end),
+        )
+        columns[entity] = _fit_predict_prophet_series(
+            y_train=y_train,
+            x_train=x_train,
+            x_future=x_future,
             forecast_dates=forecast_dates,
             frequency=frequency,
             seasonal_period=seasonal_period,
@@ -598,6 +653,142 @@ def _fit_predict_arimax_series(
     return pd.Series(values, index=prediction_dates, name=y_train.name).reindex(
         forecast_dates
     )
+
+
+def _prophet_design_matrices(
+    observed: pd.DataFrame,
+    signals: Mapping[str, pd.DataFrame],
+    entity: object,
+    forecast_dates: pd.DatetimeIndex,
+    train_end: pd.Timestamp,
+) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
+    train_parts = [observed.loc[:train_end, entity].rename("y")]
+    for signal_name, signal in signals.items():
+        signal_series = signal.loc[:, entity].rename(signal_name)
+        train_parts.append(signal_series.loc[:train_end])
+
+    train = pd.concat(train_parts, axis=1, join="inner").dropna()
+    if train.empty:
+        raise ValueError(f"No complete Prophet training rows for entity {entity}.")
+
+    future_parts = []
+    for signal_name, signal in signals.items():
+        signal_series = signal.loc[:, entity].rename(signal_name)
+        future_parts.append(signal_series.loc[forecast_dates])
+    x_future = pd.concat(future_parts, axis=1)
+    if x_future.isna().any().any():
+        raise ValueError(f"Future exogenous signals contain NaNs for entity {entity}.")
+    return (
+        train["y"].astype(float),
+        train.drop(columns="y").astype(float),
+        x_future.astype(float),
+    )
+
+
+def _fit_predict_prophet_series(
+    y_train: pd.Series,
+    x_train: pd.DataFrame,
+    x_future: pd.DataFrame,
+    forecast_dates: pd.DatetimeIndex,
+    frequency: str,
+    seasonal_period: int,
+    min_train_size: int,
+) -> pd.Series:
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    prediction_dates = pd.date_range(
+        start=pd.Timestamp(y_train.index[-1]) + offset,
+        end=forecast_dates[-1],
+        freq=frequency,
+    )
+    if len(y_train) < min_train_size:
+        return _fallback_series_forecast(
+            y_train,
+            horizon=len(prediction_dates),
+            frequency=frequency,
+            prediction_index=prediction_dates,
+            output_index=forecast_dates,
+        )
+
+    try:
+        Prophet = _prophet_class()
+    except ImportError:
+        raise
+    except Exception:
+        return _fallback_series_forecast(
+            y_train,
+            horizon=len(prediction_dates),
+            frequency=frequency,
+            prediction_index=prediction_dates,
+            output_index=forecast_dates,
+        )
+
+    regressor_names = _prophet_regressor_names(x_train.columns)
+    train = pd.DataFrame(
+        {
+            "ds": pd.to_datetime(y_train.index),
+            "y": y_train.to_numpy(dtype=float),
+        }
+    )
+    future = pd.DataFrame({"ds": pd.to_datetime(forecast_dates)})
+    for source_name, regressor_name in regressor_names.items():
+        train[regressor_name] = x_train.loc[:, source_name].to_numpy(dtype=float)
+        future[regressor_name] = x_future.loc[
+            forecast_dates,
+            source_name,
+        ].to_numpy(dtype=float)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            model = Prophet(
+                yearly_seasonality=_prophet_yearly_seasonality(
+                    y_train,
+                    seasonal_period=seasonal_period,
+                ),
+                weekly_seasonality=False,
+                daily_seasonality=False,
+            )
+            for regressor_name in regressor_names.values():
+                model.add_regressor(regressor_name)
+            model.fit(train)
+            prediction = model.predict(future)
+            values = prediction["yhat"].to_numpy(dtype=float)
+        except Exception:
+            return _fallback_series_forecast(
+                y_train,
+                horizon=len(prediction_dates),
+                frequency=frequency,
+                prediction_index=prediction_dates,
+                output_index=forecast_dates,
+            )
+
+    return pd.Series(values, index=forecast_dates, name=y_train.name)
+
+
+def _prophet_class():
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp")
+    try:
+        from prophet import Prophet
+    except ImportError as exc:
+        raise ImportError(
+            "Prophet reference forecasts require the optional dependency "
+            "`prophet`. Install it with `pip install -e .[prophet]` or "
+            "`pip install prophet`."
+        ) from exc
+    return Prophet
+
+
+def _prophet_regressor_names(columns: pd.Index) -> dict[object, str]:
+    return {column: f"x_{index}" for index, column in enumerate(columns)}
+
+
+def _prophet_yearly_seasonality(
+    y_train: pd.Series,
+    seasonal_period: int,
+) -> bool | str:
+    if seasonal_period == 12 and len(y_train) >= 2 * seasonal_period:
+        return True
+    return False
 
 
 def _fallback_series_forecast(

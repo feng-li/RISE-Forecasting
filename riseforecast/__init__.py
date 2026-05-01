@@ -12,8 +12,11 @@ from riseforecast.base_models import (
     BaseForecast,
     BaseForecaster,
     default_model_registry,
+    forecast_hierarchical_panel,
     forecast_panel,
     forecast_series,
+    is_hierarchical_base_model,
+    parse_hierarchical_base_model,
 )
 from riseforecast.config import PipelineConfig, ReferenceXConfig
 from riseforecast.curves import (
@@ -39,8 +42,10 @@ from riseforecast.hierarchy import (
     aggregate_bottom_level,
     bottom_up_reconcile,
     build_summing_matrix,
+    hierarchicalforecast_reconcile,
     hierarchy_from_series,
     reconcile_forecasts,
+    reconciliation_requires_insample,
 )
 from riseforecast.initial import (
     InitialForecast,
@@ -73,6 +78,7 @@ from riseforecast.reference import (
     reference_forecast,
     reference_specs_from_config,
 )
+from riseforecast.visualization import plot_forecast, plot_recovery_curve
 
 try:
     __version__ = version("riseforecast")
@@ -114,16 +120,23 @@ __all__ = [
     "extract_trend_component",
     "FactorCoefficientRegression",
     "forecast_errors",
+    "forecast_hierarchical_panel",
     "forecast_panel",
     "forecast_series",
+    "hierarchicalforecast_reconcile",
     "hierarchy_from_series",
     "initial_forecast",
     "intervention_terminal_forecast",
+    "is_hierarchical_base_model",
+    "parse_hierarchical_base_model",
     "positive_stacking_panel",
+    "plot_forecast",
+    "plot_recovery_curve",
     "recover_full_forecast",
     "reference_forecast",
     "reference_specs_from_config",
     "reconcile_forecasts",
+    "reconciliation_requires_insample",
     "regress_recovery_coefficients",
     "recovery_curve_forecast",
     "select_top_models",

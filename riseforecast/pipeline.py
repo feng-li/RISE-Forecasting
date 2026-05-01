@@ -275,6 +275,7 @@ class RecoveryForecastingPipeline:
                     frequency=self.config.frequency,
                 ),
                 frequency=self.config.frequency,
+                hierarchy=self.state.hierarchy,
             )
             validation_forecasts = {
                 name: forecast.values.reindex(validation_actual.index)
@@ -302,6 +303,7 @@ class RecoveryForecastingPipeline:
             horizon=horizon,
             train_end=self.config.base.train_end,
             frequency=self.config.frequency,
+            hierarchy=self.state.hierarchy,
         )
         future_forecasts = {
             name: forecast.values for name, forecast in forecasts.items()

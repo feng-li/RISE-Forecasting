@@ -11,9 +11,36 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+from riseforecast.hierarchy import (
+    aggregate_bottom_level,
+    reconcile_forecasts,
+    reconciliation_requires_insample,
+)
+from riseforecast.preprocessing import impute_time_series
+
+if TYPE_CHECKING:
+    from riseforecast.hierarchy import HierarchySpec
+
+DEFAULT_HIERARCHICAL_BASE_MODEL = "arima"
+HIERARCHICAL_METHOD_ALIASES = {
+    "top_down": "top_down_forecast_proportions",
+    "tdfp": "top_down_forecast_proportions",
+    "top_down_forecast_proportions": "top_down_forecast_proportions",
+    "top_down_average_proportions": "top_down_average_proportions",
+    "top_down_proportion_averages": "top_down_proportion_averages",
+    "wls": "wls_struct",
+    "wls_struct": "wls_struct",
+    "ols": "ols",
+    "mint": "mint_shrink",
+    "mint_shrink": "mint_shrink",
+    "mint_cov": "mint_cov",
+    "wls_var": "wls_var",
+}
 
 
 @dataclass(frozen=True)
@@ -495,6 +522,7 @@ def forecast_panel(
     train_end: str | pd.Timestamp | None = None,
     frequency: str = "MS",
     registry: ModelRegistry | None = None,
+    hierarchy: HierarchySpec | None = None,
 ) -> dict[str, BaseForecast]:
     """Forecast every column in a panel for each requested base model."""
 
@@ -515,6 +543,22 @@ def forecast_panel(
     forecast_end = forecast_index[-1]
     forecasts: dict[str, BaseForecast] = {}
     for model_name in models:
+        if is_hierarchical_base_model(model_name):
+            if hierarchy is None:
+                raise ValueError(
+                    f"Hierarchical base model {model_name!r} requires a hierarchy."
+                )
+            forecasts[model_name] = forecast_hierarchical_panel(
+                observed=observed,
+                model_name=model_name,
+                horizon=horizon,
+                hierarchy=hierarchy,
+                train_end=train_end,
+                frequency=frequency,
+                registry=registry,
+            )
+            continue
+
         columns = {}
         for series_id in panel.columns:
             series = panel[series_id]
@@ -536,6 +580,94 @@ def forecast_panel(
     return forecasts
 
 
+def forecast_hierarchical_panel(
+    observed: pd.DataFrame,
+    model_name: str,
+    horizon: int,
+    hierarchy: HierarchySpec,
+    train_end: str | pd.Timestamp | None = None,
+    frequency: str = "MS",
+    registry: ModelRegistry | None = None,
+) -> BaseForecast:
+    """Generate one hierarchical base forecast candidate.
+
+    Candidate names combine a reconciliation method and an optional base model, for
+    example `top_down_arima`, `top_down_ets`, `wls_struct`, or `mint_shrink`.
+    Candidates return bottom-level forecasts so they can be validated and ensembled
+    with ordinary base models.
+    """
+
+    if horizon < 1:
+        raise ValueError("horizon must be at least 1.")
+    parsed = parse_hierarchical_base_model(model_name)
+    if parsed is None:
+        raise ValueError(f"Unknown hierarchical base model: {model_name}")
+    reconciliation_method, base_model = parsed
+    registry = default_model_registry() if registry is None else registry
+    if base_model not in registry.names():
+        raise KeyError(
+            f"Unknown base forecaster {base_model!r} in hierarchical model "
+            f"{model_name!r}."
+        )
+
+    all_observed = _all_node_observed_panel(observed, hierarchy)
+    all_node_forecast = forecast_panel(
+        observed=all_observed,
+        models=(base_model,),
+        horizon=horizon,
+        train_end=train_end,
+        frequency=frequency,
+        registry=registry,
+        hierarchy=None,
+    )[base_model].values
+
+    insample = None
+    fitted = None
+    if reconciliation_requires_insample(reconciliation_method):
+        insample = _hierarchical_insample(
+            all_observed,
+            train_end=train_end,
+            hierarchy=hierarchy,
+        )
+        fitted = _lagged_insample_fitted(insample)
+
+    reconciled = reconcile_forecasts(
+        all_node_forecast,
+        hierarchy=hierarchy,
+        method=reconciliation_method,
+        insample=insample,
+        fitted=fitted,
+    )
+    bottom_values = reconciled.values.loc[:, list(hierarchy.bottom_ids)]
+    return BaseForecast(values=bottom_values, model_name=model_name)
+
+
+def is_hierarchical_base_model(model_name: str) -> bool:
+    """Return whether `model_name` denotes a hierarchical base candidate."""
+
+    return parse_hierarchical_base_model(model_name) is not None
+
+
+def parse_hierarchical_base_model(model_name: str) -> tuple[str, str] | None:
+    """Parse a hierarchical candidate into reconciliation and base model names."""
+
+    name = str(model_name)
+    if name in HIERARCHICAL_METHOD_ALIASES:
+        return (
+            HIERARCHICAL_METHOD_ALIASES[name],
+            DEFAULT_HIERARCHICAL_BASE_MODEL,
+        )
+
+    for alias in sorted(HIERARCHICAL_METHOD_ALIASES, key=len, reverse=True):
+        prefix = f"{alias}_"
+        if name.startswith(prefix):
+            base_model = name[len(prefix) :]
+            if not base_model:
+                return None
+            return HIERARCHICAL_METHOD_ALIASES[alias], base_model
+    return None
+
+
 def _prepare_series(y: pd.Series) -> pd.Series:
     result = y.copy()
     result.index = pd.to_datetime(result.index)
@@ -545,10 +677,53 @@ def _prepare_series(y: pd.Series) -> pd.Series:
     if first_valid is None or last_valid is None:
         raise ValueError("Cannot fit a base forecaster to an empty series.")
     result = result.loc[first_valid:last_valid]
-    result = result.interpolate(limit_direction="both").dropna()
+    result = impute_time_series(result, method="kalman").dropna()
     if result.empty:
         raise ValueError("Cannot fit a base forecaster to an empty series.")
     return result
+
+
+def _all_node_observed_panel(
+    observed: pd.DataFrame,
+    hierarchy: HierarchySpec,
+) -> pd.DataFrame:
+    panel = observed.copy()
+    panel.index = pd.to_datetime(panel.index)
+    panel = panel.sort_index().astype(float)
+    if set(hierarchy.node_ids).issubset(panel.columns):
+        return panel.loc[:, list(hierarchy.node_ids)]
+    missing = sorted(set(hierarchy.bottom_ids) - set(panel.columns))
+    if missing:
+        raise ValueError(
+            "Observed panel must contain all hierarchy bottom nodes. Missing: "
+            f"{', '.join(missing)}"
+        )
+    return aggregate_bottom_level(panel.loc[:, list(hierarchy.bottom_ids)], hierarchy)
+
+
+def _hierarchical_insample(
+    observed: pd.DataFrame,
+    train_end: str | pd.Timestamp | None,
+    hierarchy: HierarchySpec,
+) -> pd.DataFrame:
+    insample = observed.copy()
+    insample.index = pd.to_datetime(insample.index)
+    insample = insample.sort_index().loc[:, list(hierarchy.node_ids)]
+    if train_end is not None:
+        insample = insample.loc[: pd.Timestamp(train_end)]
+    columns = {}
+    for column in insample.columns:
+        columns[column] = _prepare_series(insample[column]).reindex(insample.index)
+    complete = pd.DataFrame(columns, index=insample.index).dropna(how="any")
+    if complete.empty:
+        raise ValueError("No complete hierarchy insample rows are available.")
+    return complete
+
+
+def _lagged_insample_fitted(insample: pd.DataFrame) -> pd.DataFrame:
+    fitted = insample.shift(1)
+    fitted.iloc[0] = insample.iloc[0]
+    return fitted.ffill().bfill().astype(float)
 
 
 def _future_index(

@@ -181,6 +181,57 @@ def test_pipeline_bottom_up_reconciles_final_recovery_forecast() -> None:
     assert np.allclose(forecast.values.loc["2024-04-01", "total"], 250.0)
 
 
+def test_pipeline_supports_hierarchicalforecast_reconciliation_method() -> None:
+    dataset = hierarchical_recovery_dataset(method="wls_struct")
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+    forecast = pipeline.predict()
+
+    assert pipeline.state.hierarchy_reconciliation is not None
+    assert pipeline.state.hierarchy_reconciliation.method == "wls_struct"
+    assert np.allclose(
+        forecast.values["total"],
+        forecast.values["series_a"] + forecast.values["series_b"],
+    )
+
+
+def test_pipeline_validates_and_combines_hierarchical_base_candidates() -> None:
+    direct_dataset = hierarchical_recovery_dataset()
+    config = {
+        **direct_dataset.config,
+        "base": {
+            "train_end": "2024-02",
+            "validation_start": "2024-02",
+            "validation_end": "2024-02",
+            "horizon": 2,
+            "models": ["random_walk_drift", "top_down_arima", "wls_struct"],
+            "ensemble": "mean",
+            "selection_fraction": 1.0,
+            "validation_metric": "mae",
+        },
+    }
+    dataset = RecoveryDataset(
+        series=direct_dataset.series,
+        panel=direct_dataset.panel,
+        config=config,
+    ).validate()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+
+    assert pipeline.state.base_validation_errors is not None
+    assert pipeline.state.base_selected_models == (
+        "random_walk_drift",
+        "top_down_arima",
+        "wls_struct",
+    )
+    assert pipeline.state.base_forecast is not None
+    assert pipeline.state.base_forecast.values.columns.tolist() == [
+        "series_a",
+        "series_b",
+    ]
+    assert np.isfinite(pipeline.state.base_forecast.values.to_numpy()).all()
+
+
 def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:
     dataset = seasonal_recovery_dataset()
 
@@ -256,7 +307,7 @@ def seasonal_recovery_dataset() -> RecoveryDataset:
     ).validate()
 
 
-def hierarchical_recovery_dataset() -> RecoveryDataset:
+def hierarchical_recovery_dataset(method: str = "bottom_up") -> RecoveryDataset:
     series = pd.DataFrame(
         {
             "series_id": ["total", "region", "series_a", "series_b"],
@@ -308,7 +359,7 @@ def hierarchical_recovery_dataset() -> RecoveryDataset:
         },
         "hierarchy": {
             "enabled": True,
-            "method": "bottom_up",
+            "method": method,
             "parent_column": "parent_id",
             "apply_to": ["recovery"],
         },

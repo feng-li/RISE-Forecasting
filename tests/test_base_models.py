@@ -7,9 +7,13 @@ from riseforecast.base_models import (
     RandomWalkDriftForecaster,
     SeasonalNaiveForecaster,
     default_model_registry,
+    forecast_hierarchical_panel,
     forecast_panel,
     forecast_series,
+    is_hierarchical_base_model,
+    parse_hierarchical_base_model,
 )
+from riseforecast.hierarchy import HierarchySpec
 
 
 def monthly_series(periods: int = 48) -> pd.Series:
@@ -128,3 +132,96 @@ def test_forecast_panel_extends_ragged_series_to_common_horizon() -> None:
         pd.date_range("2020-07-01", periods=2, freq="MS")
     )
     assert not values["ragged"].isna().any()
+
+
+def test_parse_hierarchical_base_model_names() -> None:
+    assert parse_hierarchical_base_model("top_down_arima") == (
+        "top_down_forecast_proportions",
+        "arima",
+    )
+    assert parse_hierarchical_base_model("top_down_ets") == (
+        "top_down_forecast_proportions",
+        "ets",
+    )
+    assert parse_hierarchical_base_model("wls_struct") == ("wls_struct", "arima")
+    assert parse_hierarchical_base_model("mint_shrink_random_walk_drift") == (
+        "mint_shrink",
+        "random_walk_drift",
+    )
+    assert is_hierarchical_base_model("mint_shrink")
+    assert not is_hierarchical_base_model("arima")
+
+
+def test_forecast_hierarchical_panel_returns_bottom_level_candidate() -> None:
+    observed = hierarchical_observed_panel()
+    hierarchy = simple_hierarchy()
+
+    forecast = forecast_hierarchical_panel(
+        observed=observed,
+        model_name="top_down_arima",
+        horizon=2,
+        train_end="2021-12",
+        hierarchy=hierarchy,
+    )
+
+    assert forecast.model_name == "top_down_arima"
+    assert forecast.values.columns.tolist() == ["series_a", "series_b"]
+    assert forecast.values.index.tolist() == list(
+        pd.date_range("2022-01-01", periods=2, freq="MS")
+    )
+    assert np.isfinite(forecast.values.to_numpy()).all()
+
+
+def test_forecast_panel_accepts_hierarchical_candidates() -> None:
+    observed = hierarchical_observed_panel()
+    hierarchy = simple_hierarchy()
+
+    forecasts = forecast_panel(
+        observed,
+        models=("top_down_ets", "wls_struct", "mint_shrink_random_walk_drift"),
+        horizon=2,
+        train_end="2021-12",
+        hierarchy=hierarchy,
+    )
+
+    assert set(forecasts) == {
+        "top_down_ets",
+        "wls_struct",
+        "mint_shrink_random_walk_drift",
+    }
+    for forecast in forecasts.values():
+        assert forecast.values.columns.tolist() == ["series_a", "series_b"]
+        assert np.isfinite(forecast.values.to_numpy()).all()
+
+
+def test_forecast_panel_requires_hierarchy_for_hierarchical_candidates() -> None:
+    observed = hierarchical_observed_panel()
+
+    try:
+        forecast_panel(observed, models=("top_down_arima",), horizon=1)
+    except ValueError as exc:
+        assert "requires a hierarchy" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("Expected hierarchical candidate to require hierarchy.")
+
+
+def simple_hierarchy() -> HierarchySpec:
+    return HierarchySpec.from_series(
+        pd.DataFrame(
+            {
+                "series_id": ["total", "region", "series_a", "series_b"],
+                "parent_id": [None, "total", "region", "region"],
+            }
+        )
+    )
+
+
+def hierarchical_observed_panel() -> pd.DataFrame:
+    index = pd.date_range("2021-01-01", periods=12, freq="MS")
+    return pd.DataFrame(
+        {
+            "series_a": np.linspace(10.0, 21.0, len(index)),
+            "series_b": np.linspace(30.0, 52.0, len(index)),
+        },
+        index=index,
+    )

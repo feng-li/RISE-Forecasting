@@ -11,10 +11,22 @@ import yaml
 CurveName = Literal["linear", "quadratic", "logistic"]
 EnsembleName = Literal["mean", "error_weighted", "ridge", "lasso"]
 ValidationMetricName = Literal["mae", "rmse", "mape", "smape"]
-ReferenceMethodName = Literal["ratio", "growth_rate", "arimax"]
+ReferenceMethodName = Literal["ratio", "growth_rate", "arimax", "prophet"]
 RatioStatisticName = Literal["mean", "median"]
 RecoveryCoefficientMethodName = Literal["direct", "weighted_score", "regression"]
-HierarchyMethodName = Literal["bottom_up"]
+HierarchyMethodName = Literal[
+    "bottom_up",
+    "top_down",
+    "top_down_forecast_proportions",
+    "top_down_average_proportions",
+    "top_down_proportion_averages",
+    "ols",
+    "wls_struct",
+    "wls_var",
+    "mint",
+    "mint_shrink",
+    "mint_cov",
+]
 HierarchyStageName = Literal["recovery"]
 
 DEFAULT_BASE_MODELS: tuple[str, ...] = (

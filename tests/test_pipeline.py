@@ -11,6 +11,9 @@ def compact_recovery_dataset() -> RecoveryDataset:
             "series_name": ["Series A", "Series B"],
             "target_name": ["target", "target"],
             "unit": ["count", "count"],
+            "policy": [1, 5],
+            "distance": [1, 5],
+            "recovery": [1, 5],
             "coefficient": [0.5, 0.8],
         }
     )
@@ -88,6 +91,30 @@ def test_pipeline_fits_dataset_from_compact_config() -> None:
     assert np.allclose(forecast.values.loc["2024-05-01"], [75.0, 200.0])
     assert np.allclose(forecast.values.loc["2024-04-01"], [107.5, 220.0])
     assert pipeline.state.seasonal_multipliers is None
+
+
+def test_pipeline_uses_configured_regression_recovery_coefficients() -> None:
+    direct_dataset = compact_recovery_dataset()
+    config = {
+        **direct_dataset.config,
+        "recovery": {
+            "method": "regression",
+            "score_columns": ["policy", "distance", "recovery"],
+            "anchors": {"series_a": 0.5, "series_b": 1.0},
+        },
+    }
+    dataset = RecoveryDataset(
+        series=direct_dataset.series,
+        panel=direct_dataset.panel,
+        config=config,
+    ).validate()
+
+    pipeline = RecoveryForecastingPipeline.from_dataset(dataset).fit_dataset(dataset)
+
+    assert pipeline.state.recovery_coefficients is not None
+    assert pipeline.state.terminal_forecast is not None
+    assert pipeline.state.recovery_coefficients.loc["series_b"] == 1.0
+    assert pipeline.state.terminal_forecast.values.loc["series_b"] == 250.0
 
 
 def test_pipeline_decomposes_base_forecast_seasonality_for_curve() -> None:

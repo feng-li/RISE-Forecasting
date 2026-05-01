@@ -36,6 +36,9 @@ def test_converted_tourism_data_uses_compact_schema() -> None:
     assert config["base"]["train_end"] == "2019-12"
     assert config["base"]["horizon"] == 60
     assert "arima" in config["base"]["models"]
+    assert config["recovery"]["method"] == "regression"
+    assert config["recovery"]["score_columns"] == ["policy", "distance", "recovery"]
+    assert set(config["recovery"]["anchors"]) == {"canada", "mexico", "hong_kong"}
     assert config["curve"]["trend_history_start"] == "2022-01"
     assert "2024-12" in config["curve"]["logistic_anchor_dates"]
     assert len(panel) == 10188

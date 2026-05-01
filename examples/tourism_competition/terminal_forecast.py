@@ -5,7 +5,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from riseforecast import RecoveryDataset, intervention_terminal_forecast
+from riseforecast import (
+    RecoveryCoefficientEstimator,
+    RecoveryDataset,
+    intervention_terminal_forecast,
+)
 
 
 def main() -> None:
@@ -22,9 +26,12 @@ def main() -> None:
     dataset = RecoveryDataset.from_directory(args.data_dir)
     dates = dataset.config.get("dates", {})
     terminal_date = args.terminal_date or dates["terminal_date"]
+    coefficients = RecoveryCoefficientEstimator.from_config(
+        dataset.pipeline_config().recovery
+    ).estimate(dataset.metadata())
     terminal = intervention_terminal_forecast(
         dataset.base_forecast(),
-        dataset.coefficients(),
+        coefficients,
         terminal_date=terminal_date,
     ).to_frame()
 

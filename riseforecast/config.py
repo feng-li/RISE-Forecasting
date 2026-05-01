@@ -12,6 +12,7 @@ CurveName = Literal["linear", "quadratic", "logistic"]
 EnsembleName = Literal["mean", "error_weighted", "ridge", "lasso"]
 ReferenceMethodName = Literal["ratio", "growth_rate", "arimax"]
 RatioStatisticName = Literal["mean", "median"]
+RecoveryCoefficientMethodName = Literal["direct", "weighted_score", "regression"]
 
 DEFAULT_BASE_MODELS: tuple[str, ...] = (
     "seasonal_naive",
@@ -88,11 +89,18 @@ class InitialForecastConfig:
 class RecoveryCoefficientConfig:
     """Configuration for destination/entity recovery coefficients."""
 
+    method: RecoveryCoefficientMethodName = "direct"
+    coefficient_column: str = "coefficient"
     score_columns: tuple[str, ...] = ("policy", "distance", "recovery")
+    weights: dict[str, float] = field(default_factory=dict)
     anchors: dict[str, float] = field(default_factory=dict)
     default_coefficient: float = 1.0
     min_coefficient: float = 0.0
     max_coefficient: float = 1.0
+    score_min: float = 1.0
+    score_max: float = 5.0
+    fit_intercept: bool = True
+    preserve_anchors: bool = True
 
 
 @dataclass(frozen=True)
@@ -246,13 +254,23 @@ def _parse_recovery(data: Any) -> RecoveryCoefficientConfig:
     if data is None:
         return RecoveryCoefficientConfig()
     return RecoveryCoefficientConfig(
+        method=data.get("method", "direct"),
+        coefficient_column=str(data.get("coefficient_column", "coefficient")),
         score_columns=tuple(
             data.get("score_columns", ("policy", "distance", "recovery"))
         ),
+        weights={
+            str(key): float(value)
+            for key, value in dict(data.get("weights", {})).items()
+        },
         anchors=dict(data.get("anchors", {})),
         default_coefficient=float(data.get("default_coefficient", 1.0)),
         min_coefficient=float(data.get("min_coefficient", 0.0)),
         max_coefficient=float(data.get("max_coefficient", 1.0)),
+        score_min=float(data.get("score_min", 1.0)),
+        score_max=float(data.get("score_max", 5.0)),
+        fit_intercept=bool(data.get("fit_intercept", True)),
+        preserve_anchors=bool(data.get("preserve_anchors", True)),
     )
 
 

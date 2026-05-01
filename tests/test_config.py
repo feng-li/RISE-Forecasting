@@ -14,6 +14,14 @@ def test_pipeline_config_from_dict_parses_dataset_config() -> None:
     assert config.reference.x[0].name == "search_growth"
     assert config.reference.x[0].variables == ("search_index",)
     assert config.reference.x[0].method == "growth_rate"
+    assert config.recovery.method == "regression"
+    assert config.recovery.score_columns == ("policy", "distance", "recovery")
+    assert config.recovery.weights == {
+        "policy": 2.0,
+        "distance": 1.0,
+        "recovery": 1.0,
+    }
+    assert config.recovery.anchors == {"series_a": 0.5, "series_b": 1.0}
     assert config.curve.curves == ("linear",)
     assert config.curve.quadratic_terminal_weight == 18.0
 
@@ -63,6 +71,12 @@ def compact_config() -> dict[str, object]:
                     "method": "growth_rate",
                 }
             ],
+        },
+        "recovery": {
+            "method": "regression",
+            "score_columns": ["policy", "distance", "recovery"],
+            "weights": {"policy": 2.0, "distance": 1.0, "recovery": 1.0},
+            "anchors": {"series_a": 0.5, "series_b": 1.0},
         },
         "curve": {"curves": ["linear"]},
     }

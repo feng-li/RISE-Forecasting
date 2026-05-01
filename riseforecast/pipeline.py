@@ -150,7 +150,9 @@ class RecoveryForecastingPipeline:
             observed=observed,
             base_forecast=self.state.base_forecast.values,
         )
-        self.state.recovery_coefficients = dataset.coefficients()
+        self.state.recovery_coefficients = self._estimate_recovery_coefficients(
+            dataset
+        )
 
         from riseforecast.intervention import intervention_terminal_forecast
 
@@ -237,6 +239,16 @@ class RecoveryForecastingPipeline:
             {name: forecast.values for name, forecast in forecasts.items()}
         )
         return ForecastFrame(values=values)
+
+    def _estimate_recovery_coefficients(
+        self,
+        dataset: RecoveryDataset,
+    ) -> pd.Series:
+        from riseforecast.recovery import RecoveryCoefficientEstimator
+
+        return RecoveryCoefficientEstimator.from_config(
+            self.config.recovery
+        ).estimate(dataset.metadata())
 
     def _initial_forecast_for_curve(
         self,

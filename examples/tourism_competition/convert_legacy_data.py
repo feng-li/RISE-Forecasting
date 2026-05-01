@@ -559,6 +559,27 @@ def build_config() -> dict:
                 },
             ],
         },
+        "recovery": {
+            "method": "regression",
+            "coefficient_column": "coefficient",
+            "score_columns": ["policy", "distance", "recovery"],
+            "weights": {
+                "policy": 1.0,
+                "distance": 1.0,
+                "recovery": 1.0,
+            },
+            "anchors": {
+                "canada": 0.65,
+                "mexico": 1.0,
+                "hong_kong": 0.85,
+            },
+            "min_coefficient": 0.0,
+            "max_coefficient": 1.0,
+            "score_min": 1.0,
+            "score_max": 5.0,
+            "fit_intercept": True,
+            "preserve_anchors": True,
+        },
         "curve": {
             "curves": ["linear", "quadratic", "logistic"],
             "seasonal_period": 12,
@@ -587,8 +608,9 @@ def build_config() -> dict:
         "notes": [
             "series_id is the general quantity of interest; in this example it "
             "maps to tourism destinations.",
-            "coefficient values in series.csv follow the legacy notebook "
-            "implementation.",
+            "recovery.method=regression follows the paper-style score-to-coefficient "
+            "calibration; coefficient values in series.csv are retained for legacy "
+            "checks.",
             "reference_forecast rows are dated January through June 2023 to "
             "match the legacy reference.xlsx artifact.",
         ],

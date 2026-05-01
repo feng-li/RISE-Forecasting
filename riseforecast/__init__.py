@@ -37,6 +37,17 @@ from riseforecast.intervention import (
 )
 from riseforecast.pipeline import RecoveryForecastingPipeline
 from riseforecast.preprocessing import stl_monthly_seasonal_multipliers
+from riseforecast.recovery import (
+    FactorCoefficientRegression,
+    RecoveryCoefficientEstimator,
+    RecoveryCoefficientRegression,
+    apply_recovery_coefficients,
+    average_recovery_score,
+    direct_recovery_coefficients,
+    regress_recovery_coefficients,
+    weighted_factor_matrix,
+    weighted_recovery_score,
+)
 from riseforecast.reference import (
     ReferenceForecast,
     ReferenceForecaster,
@@ -66,12 +77,18 @@ __all__ = [
     "ReferenceXSpec",
     "RecoveryCurveForecast",
     "RecoveryCurveForecaster",
+    "RecoveryCoefficientEstimator",
+    "RecoveryCoefficientRegression",
     "RecoveryDataset",
     "RecoveryForecastingPipeline",
     "__version__",
+    "apply_recovery_coefficients",
+    "average_recovery_score",
     "default_model_registry",
+    "direct_recovery_coefficients",
     "evaluate_forecast_matrix",
     "extract_trend_component",
+    "FactorCoefficientRegression",
     "forecast_panel",
     "forecast_series",
     "initial_forecast",
@@ -79,6 +96,9 @@ __all__ = [
     "recover_full_forecast",
     "reference_forecast",
     "reference_specs_from_config",
+    "regress_recovery_coefficients",
     "recovery_curve_forecast",
     "stl_monthly_seasonal_multipliers",
+    "weighted_factor_matrix",
+    "weighted_recovery_score",
 ]

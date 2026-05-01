@@ -173,6 +173,23 @@ reference = ReferenceForecaster(
 )
 ```
 
+Recovery coefficients can now be estimated from general metadata rather than
+hard-coded destination values. The package supports direct coefficients, a
+weighted score, and a paper-style regression that first combines the configured
+factors, usually `policy`, `distance`, and `recovery`, into a weighted recovery
+score and then calibrates a least-squares mapping from anchor coefficients:
+
+```python
+from riseforecast import RecoveryCoefficientEstimator
+
+coefficients = RecoveryCoefficientEstimator(
+    method="regression",
+    score_columns=("policy", "distance", "recovery"),
+    weights={"policy": 1.0, "distance": 1.0, "recovery": 1.0},
+    anchors={"canada": 0.65, "mexico": 1.0, "hong_kong": 0.85},
+).estimate(dataset.metadata())
+```
+
 Implemented base model names include:
 
 ```text
@@ -363,6 +380,24 @@ reference:
     - name: flight_growth
       variables: [flight_capacity]
       method: growth_rate
+recovery:
+  method: regression
+  coefficient_column: coefficient
+  score_columns: [policy, distance, recovery]
+  weights:
+    policy: 1.0
+    distance: 1.0
+    recovery: 1.0
+  anchors:
+    canada: 0.65
+    mexico: 1.0
+    hong_kong: 0.85
+  min_coefficient: 0.0
+  max_coefficient: 1.0
+  score_min: 1.0
+  score_max: 5.0
+  fit_intercept: true
+  preserve_anchors: true
 curve:
   curves: [linear, quadratic, logistic]
   seasonal_period: 12
@@ -377,6 +412,12 @@ runs the implemented stages from the compact dataset. The tourism example now
 uses package-native base models configured under `base:`. If no package-native
 base model configuration is supplied, the pipeline falls back to the converted
 `base_forecast / legacy_ensemble` rows as the terminal-stage baseline.
+
+The `recovery:` block controls the terminal intervention coefficient. Use
+`method: direct` to consume a coefficient column as-is, `method: weighted_score`
+to map weighted factor scores directly into the coefficient range, or
+`method: regression` to follow the paper's calibration idea with anchor
+coefficients.
 
 For the tourism competition, the legacy artifacts map into this structure as:
 

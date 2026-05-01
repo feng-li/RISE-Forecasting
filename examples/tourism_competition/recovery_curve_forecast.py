@@ -7,6 +7,7 @@ from pathlib import Path
 
 from riseforecast import (
     InitialForecaster,
+    RecoveryCoefficientEstimator,
     RecoveryCurveForecaster,
     RecoveryDataset,
     ReferenceForecaster,
@@ -78,7 +79,9 @@ def main() -> None:
             models=models,
             frequency=dataset.config.get("frequency", "MS"),
         ).forecast(observed).values
-    coefficients = dataset.coefficients()
+    coefficients = RecoveryCoefficientEstimator.from_config(
+        dataset.pipeline_config().recovery
+    ).estimate(dataset.metadata())
     terminal = intervention_terminal_forecast(
         baseline,
         coefficients,

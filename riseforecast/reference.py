@@ -771,9 +771,8 @@ def _prophet_class():
         from prophet import Prophet
     except ImportError as exc:
         raise ImportError(
-            "Prophet reference forecasts require the optional dependency "
-            "`prophet`. Install it with `pip install -e .[prophet]` or "
-            "`pip install prophet`."
+            "Prophet reference forecasts require the core dependency `prophet`. "
+            "Reinstall the package dependencies or run `pip install prophet`."
         ) from exc
     return Prophet
 

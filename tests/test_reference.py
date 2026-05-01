@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pytest
 
 from riseforecast.config import ReferenceForecastConfig, ReferenceXConfig
 from riseforecast.pipeline import RecoveryForecastingPipeline
@@ -127,7 +126,6 @@ def test_arimax_reference_forecast_accepts_multiple_exogenous_signals() -> None:
 
 
 def test_prophet_reference_forecast_returns_finite_path() -> None:
-    pytest.importorskip("prophet")
     observed = longer_observed_matrix()
     signal = longer_signal_matrix()
     forecast_dates = pd.date_range("2024-01-01", periods=2, freq="MS")

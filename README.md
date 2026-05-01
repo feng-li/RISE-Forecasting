@@ -210,8 +210,7 @@ reference = ReferenceForecaster(
 ```
 
 The `prophet` reference method uses Prophet with the configured X variables as
-regressors. Prophet remains an optional dependency; install it with
-`pip install -e .[prophet]` when that reference case is used.
+regressors. Prophet is included in the core package dependencies.
 
 Recovery coefficients can now be estimated from general metadata rather than
 hard-coded destination values. The package supports direct coefficients, a

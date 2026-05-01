@@ -41,8 +41,7 @@ python examples/tourism_competition/initial_forecast.py
 Reference forecasts can be generated from arbitrary exogenous variables `X`.
 In this example, Baidu search and flights are tourism-specific X variables, and
 the migrated reference stage supports named X cases such as `search_arimax`,
-`search_prophet`, `search_ratio`, and `flight_growth`. The Prophet case requires
-the optional `prophet` dependency.
+`search_prophet`, `search_ratio`, and `flight_growth`.
 
 ```bash
 python examples/tourism_competition/reference_forecast.py

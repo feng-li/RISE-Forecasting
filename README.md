@@ -1,4 +1,4 @@
-# riseforecast: General Recovery Forecasting with RISE
+# `riseforecast`: General Recovery Forecasting with RISE
 
 This repository contains `riseforecast`, a Python package for forecasting how a
 quantity of interest recovers after a shock. It implements the **RISE**

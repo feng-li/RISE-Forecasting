@@ -1,21 +1,17 @@
 # `riseforecast`: General Recovery Forecasting with RISE
 
-This repository contains `riseforecast`, a Python package for forecasting how a
-quantity of interest recovers after a shock. It implements the **RISE**
-(Recovery-Informed Strategy Enhancement) framework as a reusable recovery
+This Python package  `riseforecast` forecast how a quantity of interest recovers after a shock. It implements the **RISE** (Recovery-Informed Strategy Enhancement) framework as a reusable recovery
 forecasting module.
 
 The package is entity-neutral: a series can be a country, route, product, store,
 market, sector, or any other time series whose post-shock recovery needs to be
-forecast. The tourism competition workflow is kept as an example application.
+forecast. 
+
 That original RISE application was awarded **1st place in point forecasting** and
 **3rd place in interval forecasting** in the **Tourism Forecasting Competition II
-(2023)**.
+(2023)**. The tourism competition workflow in the package is kept as an example application.
 
 ## Repository Status
-
-This repository is currently in a **migration process** from the original paper
-code toward a standard Python package.
 
 The reusable package is developed in:
 
@@ -40,14 +36,14 @@ Use `examples/tourism_competition/legacypapercode/` if you need to check,
 reproduce, or compare against the implementation used for the paper. Use
 `riseforecast/` for the general recovery forecasting package.
 
-Because the migration replaces parts of the original R/notebook workflow with
+Because the current package replaces parts of the original R/notebook workflow with
 standard Python package APIs, package-native forecasts can differ from the legacy
 paper outputs. Small numerical differences can come from library implementations,
 optimizer behavior, missing-value handling, date alignment, and floating point
-rounding. Larger differences are also expected where the Python package uses
+rounding. Other differences are also possible where the Python package uses
 generalized model choices instead of the paper's tourism-specific scripts.
 
-Use the package-native diagnostics for the migrated workflow. Use the legacy
+Use the package-native diagnostics for the recovery forecasting workflow. Use the legacy
 folder only when you need exact paper reproduction or a direct legacy audit.
 
 ## Methodology
